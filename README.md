@@ -14,10 +14,10 @@ Open http://localhost:8000 and press the power button.
 
 ## Features
 
-The UI is laid out like a Launchpad Pro: an 8×8 pad grid with round function buttons on all four sides.
+The UI is laid out like a Launchpad Pro: an 8×8 pad grid framed by function pads, set apart from the grid by a thin gap.
 
 - **Grid**: rows 1–2 are the 16 steps of the selected track (Shift-click for an accent, drag to paint). Row 3 sets the velocity for new steps, row 4 is the song chain (8 entries per page), and the bottom half holds the 8 drum pads.
-- **Round buttons**: top row is PLAY, REC (records pad hits into the pattern, quantized), SONG, COPY, CLR, chain page ◀ ▶ and LOOP. The left column selects a track, the right column mutes it, and the bottom row picks patterns A–H.
+- **Edge pads**: the top row holds symbol pads for play/stop, record (pad hits into the pattern, quantized), song, copy, clear, chain page ‹ › and looper. The left column selects a track (labeled, in its color), the right column mutes it (speaker icon; amber when muted), and the round buttons along the bottom pick patterns A–H.
 - **COPY / CLR** work like Launchpad's Duplicate and Delete: arm the button, then tap the target. COPY + pattern copies the pattern you're viewing into it. CLR + pattern, chain entry or track button clears that pattern, removes that chain entry, or clears that track's steps.
 - **Patterns & song**: while playing, picking a pattern queues it for the next bar line. SONG mode plays the chain (up to 64 one-bar entries) and loops. Tap a chain entry to jump there on the next bar, or tap **+** to add the pattern you're editing.
 - **Track editor** (right panel): LEVEL / PITCH (±24 st) / PAN / DECAY, choke group (hats are pre-choked), load an audio file, or record from the mic onto the track (auto-trimmed and normalized).

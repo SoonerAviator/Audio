@@ -38,6 +38,22 @@ let chainPage = 0;
 let armed = null;        // 'copy' | 'clr' | null
 let armTimer = 0;
 
+// Inline SVG symbols for the function pads (24×24, stroked unless marked fill).
+const ICONS = {
+  play: '<path class="f" d="M8 5v14l11-7z"/>',
+  stop: '<path class="f" d="M6 6h12v12H6z"/>',
+  rec: '<circle class="f" cx="12" cy="12" r="6"/>',
+  song: '<path d="M4 6h11M4 11h11M4 16h7"/><path class="f" d="M16 13v7l5-3.5z"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  clr: '<path d="M6 6l12 12M18 6L6 18"/>',
+  prev: '<path d="M15 5l-7 7 7 7"/>',
+  next: '<path d="M9 5l7 7-7 7"/>',
+  loop: '<path d="M17 3l3 3-3 3"/><path d="M4 12v-2a4 4 0 0 1 4-4h12"/><path d="M7 21l-3-3 3-3"/><path d="M20 12v2a4 4 0 0 1-4 4H4"/>',
+  speaker: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+  muted: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
+};
+const icon = (name) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+
 const dev = { top: [], left: [], right: [], bottom: [], steps: [], vel: [], chain: [], pads: [], logo: null };
 const ui = { meter: [[], []], loopLeds: [] };
 const knobs = {};
@@ -165,27 +181,31 @@ function buildDevice() {
   const g = document.createElement('div');
   g.className = 'lp';
   $('device').appendChild(g);
+  // Logical 10×10 layout (0 and 9 are the edge rows/columns). The CSS grid has a thin
+  // spacer track between the edges and the 8×8 core, so map logical → physical tracks.
+  const phys = (i) => (i === 0 ? 1 : i === 9 ? 12 : i + 2);
   const at = (tag, cls, r, c, rs = 1, cs = 1) => {
     const e = document.createElement(tag);
     e.className = cls;
-    e.style.gridRow = `${r + 1} / span ${rs}`;
-    e.style.gridColumn = `${c + 1} / span ${cs}`;
+    e.style.gridRow = `${phys(r)} / span ${rs}`;
+    e.style.gridColumn = `${phys(c)} / span ${cs}`;
     return g.appendChild(e);
   };
   const tap = (e, fn) => e.addEventListener('pointerdown', (ev) => { ev.preventDefault(); fn(ev); });
 
   TOP.forEach((t, c) => {
-    dev.top[c] = at('button', 'rb', 0, c + 1);
+    dev.top[c] = at('button', 'pd fn', 0, c + 1);
     dev.top[c].title = t.title;
     tap(dev.top[c], t.fn);
   });
   dev.logo = at('div', 'logo', 0, 9);
 
   for (let r = 0; r < 8; r++) {
-    dev.left[r] = at('button', 'rb', r + 1, 0);
+    dev.left[r] = at('button', 'pd trk', r + 1, 0);
+    dev.left[r].innerHTML = `<span class="lb">${TRACKS[r].name}</span>`;
     dev.left[r].title = `Select ${TRACKS[r].name} (with CLR armed: clear its steps)`;
     tap(dev.left[r], () => pressTrack(r));
-    dev.right[r] = at('button', 'rb', r + 1, 9);
+    dev.right[r] = at('button', 'pd fn mute', r + 1, 9);
     dev.right[r].title = `Mute ${TRACKS[r].name}`;
     tap(dev.right[r], () => toggleMute(r));
   }
@@ -254,27 +274,30 @@ function renderTop() {
   const loopMode = loop.s === LOOP.ARMED ? 'blink' : loop.s === LOOP.EMPTY || loop.s === LOOP.STOP ? 'dim' : 'on';
   const maxPage = maxChainPage();
   const spec = {
-    play: [playing ? 'STOP' : 'PLAY', GREEN, playing ? 'on' : 'dim'],
-    rec: ['REC', RED, recArm ? 'on' : 'dim'],
-    song: ['SONG', AMBER, state.song ? 'on' : 'dim'],
-    copy: ['COPY', WHITE, armed === 'copy' ? 'blink' : 'dim'],
-    clr: ['CLR', RED, armed === 'clr' ? 'blink' : 'dim'],
-    prev: ['◀', WHITE, chainPage > 0 ? 'dim' : ''],
-    next: ['▶', WHITE, chainPage < maxPage ? 'dim' : ''],
-    loop: ['LOOP', loopColor, loopMode],
+    play: [playing ? 'stop' : 'play', GREEN, playing ? 'on' : 'dim'],
+    rec: ['rec', RED, recArm ? 'on' : 'dim'],
+    song: ['song', AMBER, state.song ? 'on' : 'dim'],
+    copy: ['copy', WHITE, armed === 'copy' ? 'blink' : 'dim'],
+    clr: ['clr', RED, armed === 'clr' ? 'blink' : 'dim'],
+    prev: ['prev', WHITE, chainPage > 0 ? 'dim' : ''],
+    next: ['next', WHITE, chainPage < maxPage ? 'dim' : ''],
+    loop: ['loop', loopColor, loopMode],
   };
   TOP.forEach((t, c) => {
-    const [text, color, mode] = spec[t.key];
-    dev.top[c].textContent = text;
-    light(dev.top[c], color, mode);
+    const [ico, color, mode] = spec[t.key];
+    const e = dev.top[c];
+    if (e.dataset.ico !== ico) { e.innerHTML = icon(ico); e.dataset.ico = ico; }
+    light(e, color, mode);
   });
 }
 
 function renderSide() {
   for (let t = 0; t < N; t++) {
-    light(dev.left[t], TRACKS[t].color, t === sel ? 'on' : 'dim');
-    dev.right[t].textContent = 'M';
-    light(dev.right[t], AMBER, state.pads[t].mute ? 'on' : '');
+    const muted = state.pads[t].mute;
+    light(dev.left[t], TRACKS[t].color, t === sel ? 'on' : muted ? '' : 'dim');
+    const m = dev.right[t], ico = muted ? 'muted' : 'speaker';
+    if (m.dataset.ico !== ico) { m.innerHTML = icon(ico); m.dataset.ico = ico; }
+    light(m, muted ? AMBER : TRACKS[t].color, muted ? 'on' : 'dim');
   }
 }
 

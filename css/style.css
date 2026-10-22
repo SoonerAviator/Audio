@@ -107,10 +107,12 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   box-shadow: 0 30px 60px -30px #000, inset 0 1px 0 #ffffff0d;
   min-width: 0;
 }
+/* 8×8 core plus a pad row/column on each edge, set apart by a thin spacer track. */
 .lp {
   display: grid;
-  grid-template-columns: 0.72fr repeat(8, minmax(0, 1fr)) 0.72fr;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) 2px repeat(8, minmax(0, 1fr)) 2px minmax(0, 1fr);
+  grid-template-rows: auto 2px repeat(8, auto) 2px auto;
+  gap: 6px;
   align-items: center;
 }
 .sizer { aspect-ratio: 1; visibility: hidden; }
@@ -154,6 +156,19 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .pad .lb { left: 10px; bottom: 8px; font-size: 11px; }
 .pad .key { position: absolute; right: 9px; top: 7px; font-size: 10px; font-weight: 700; color: #0007; pointer-events: none; }
 .pad.dim .key { color: color-mix(in srgb, var(--c) 60%, #fff); opacity: .6; }
+
+/* edge pads: function symbols, track select, mute */
+.pd .ico {
+  position: absolute; left: 50%; top: 50%; width: 42%; height: 42%; transform: translate(-50%, -50%);
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+  color: color-mix(in srgb, var(--c) 75%, #fff); opacity: .8; pointer-events: none;
+}
+.pd .ico .f { fill: currentColor; stroke: none; }
+.pd.on .ico, .pd.acc .ico { color: #000c; opacity: 1; }
+.pd:not(.dim):not(.on):not(.acc):not(.mid):not(.blink) .ico { color: var(--faint); }
+.pd.trk .lb { left: 50%; bottom: 50%; transform: translate(-50%, 50%); font-size: 8px; letter-spacing: 0.04em; white-space: nowrap; }
+.pd.trk:not(.on):not(.dim) .lb { color: var(--faint); }
+.pd.trk.dim .lb { color: color-mix(in srgb, var(--c) 80%, #fff); }
 
 /* round buttons */
 .rb {
@@ -276,6 +291,8 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   .lp { gap: 4px; }
   .pd { border-radius: 4px; }
   .pd .lb { font-size: 7px; left: 3px; bottom: 2px; letter-spacing: 0; }
+  .pd.trk .lb { font-size: 6px; left: 50%; bottom: 50%; }
+  .lp { grid-template-columns: minmax(0, 1fr) 1px repeat(8, minmax(0, 1fr)) 1px minmax(0, 1fr); grid-template-rows: auto 1px repeat(8, auto) 1px auto; }
   .pad .lb { font-size: 9px; left: 7px; bottom: 5px; }
   .pad .key { display: none; }
   .meter { margin-left: auto; }
