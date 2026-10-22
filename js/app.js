@@ -4,6 +4,10 @@ import { TRACKS, makeSample, normalize } from './kit.js';
 
 const N = 8;
 const STEPS = 16;
+const PATTERNS = 8;
+const PAT_SIZE = N * STEPS;
+const MAX_CHAIN = 64;
+const PAT_NAMES = 'ABCDEFGH';
 const KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f'];
 const STORE = 'pulse.v1';
 const MAX_FILE_SEC = 30;
@@ -22,24 +26,38 @@ let loop = { s: LOOP.EMPTY, bars: state.loopBars, len: 0, undo: false };
 let loopPos = 0, loopBar = 0;
 let meterL = 0, meterR = 0;
 let curStep = -1;
+let view = 0;          // pattern shown in the grid (and edited)
+let playPat = -1;      // pattern the engine is playing, from ticks
+let queued = -1;       // pattern waiting for the bar line
+let chainAt = 0;       // current chain entry (or start entry while stopped)
+let jumpTo = -1;       // chain entry waiting for the bar line
+let clipboard = null;
+let clearArmed = 0;
 
-const ui = { pads: [], glows: [], rows: [], steps: [], phLeds: [], meter: [[], []], loopLeds: [] };
+const ui = { pads: [], glows: [], rows: [], steps: [], phLeds: [], meter: [[], []], loopLeds: [], pats: [], chips: [] };
 let knobs = {};
 
 // ------------------------------------------------------------------ state
 
 function defaultState() {
-  const pattern = new Array(N * STEPS).fill(0);
-  const put = (t, steps, v = 100) => steps.forEach((s) => (pattern[t * STEPS + s] = v));
-  put(0, [0, 8, 10]); put(0, [0], 127);
-  put(1, [4, 12]);
-  put(2, [12], 80);
-  put(3, [0, 2, 4, 6, 8, 10, 12]); put(3, [2, 6, 10], 70);
-  put(4, [14]);
-  put(7, [7, 15], 70);
+  const patterns = Array.from({ length: PATTERNS }, () => new Array(PAT_SIZE).fill(0));
+  const put = (p, t, steps, v = 100) => steps.forEach((s) => (patterns[p][t * STEPS + s] = v));
+  // A: main groove
+  put(0, 0, [0, 8, 10]); put(0, 0, [0], 127);
+  put(0, 1, [4, 12]);
+  put(0, 2, [12], 80);
+  put(0, 3, [0, 2, 4, 6, 8, 10, 12]); put(0, 3, [2, 6, 10], 70);
+  put(0, 4, [14]);
+  put(0, 7, [7, 15], 70);
+  // B: fill
+  put(1, 0, [0, 8]); put(1, 0, [0], 127);
+  put(1, 1, [4, 10, 13, 14]); put(1, 1, [12, 15], 127);
+  put(1, 3, [0, 2, 4, 6, 8]);
+  put(1, 4, [10]);
+  put(1, 5, [11, 13, 15], 90);
   return {
     bpm: 120, swing: 0, master: 0.8, loopGain: 1, loopBars: 2, loopSrc: 1,
-    pattern,
+    patterns, view: 0, chain: [0, 0, 0, 1], song: false,
     pads: TRACKS.map((t) => ({ gain: 0.8, pitch: 0, pan: 0, decay: 1, choke: t.choke || 0, mute: false })),
   };
 }
@@ -48,7 +66,20 @@ function loadState() {
   const d = defaultState();
   try {
     const s = JSON.parse(localStorage.getItem(STORE));
-    if (s && s.pattern && s.pattern.length === N * STEPS && s.pads && s.pads.length === N) return { ...d, ...s };
+    if (!s || !s.pads || s.pads.length !== N) return d;
+    // v1 saved a single pattern; it becomes pattern A.
+    if (s.pattern && !s.patterns) {
+      s.patterns = d.patterns.map((p, i) => (i === 0 && s.pattern.length === PAT_SIZE ? s.pattern : new Array(PAT_SIZE).fill(0)));
+      s.chain = [0];
+      delete s.pattern;
+    }
+    const ok = Array.isArray(s.patterns) && s.patterns.length === PATTERNS && s.patterns.every((p) => p.length === PAT_SIZE);
+    if (ok) {
+      const st = { ...d, ...s };
+      st.chain = (Array.isArray(st.chain) ? st.chain : []).filter((p) => p >= 0 && p < PATTERNS).slice(0, MAX_CHAIN);
+      st.view = st.view >= 0 && st.view < PATTERNS ? st.view : 0;
+      return st;
+    }
   } catch { /* storage unavailable */ }
   return d;
 }
@@ -138,7 +169,7 @@ function buildSeq() {
       c.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         c.releasePointerCapture(e.pointerId);
-        const v = state.pattern[i * STEPS + s] ? 0 : e.shiftKey ? 127 : 100;
+        const v = state.patterns[view][i * STEPS + s] ? 0 : e.shiftKey ? 127 : 100;
         paint = { i, v };
         setStep(i, s, v);
       });
@@ -166,15 +197,21 @@ function groups(host) {
 }
 
 function setStep(i, s, v) {
-  if (state.pattern[i * STEPS + s] === v) return;
-  state.pattern[i * STEPS + s] = v;
-  engine.send({ t: 'step', i, s, v });
+  const pat = state.patterns[view];
+  if (pat[i * STEPS + s] === v) return;
+  pat[i * STEPS + s] = v;
+  engine.send({ t: 'step', p: view, i, s, v });
   renderStep(i, s);
+  renderPatterns();
   save();
 }
 
+function renderSteps() {
+  for (let i = 0; i < N; i++) for (let s = 0; s < STEPS; s++) renderStep(i, s);
+}
+
 function renderStep(i, s) {
-  const v = state.pattern[i * STEPS + s];
+  const v = state.patterns[view][i * STEPS + s];
   const c = ui.steps[i][s];
   c.classList.toggle('on', v > 0 && v < 120);
   c.classList.toggle('acc', v >= 120);
@@ -195,6 +232,153 @@ function setPlayhead(s) {
   if (s < 0) return;
   ui.phLeds[s].classList.add('on');
   for (let i = 0; i < N; i++) ui.steps[i][s].classList.add('ph');
+}
+
+// ------------------------------------------------------------------ patterns / song
+
+function buildPatterns() {
+  const host = $('pats');
+  for (let p = 0; p < PATTERNS; p++) {
+    const b = document.createElement('button');
+    b.className = 'btn pat';
+    b.textContent = PAT_NAMES[p];
+    b.title = `Pattern ${PAT_NAMES[p]} (${p + 1})`;
+    b.addEventListener('click', () => pickPattern(p));
+    host.appendChild(b);
+    ui.pats.push(b);
+  }
+
+  $('patCopy').addEventListener('click', () => {
+    clipboard = state.patterns[view].slice();
+    $('patPaste').disabled = false;
+  });
+  $('patPaste').addEventListener('click', () => clipboard && writePattern(view, clipboard.slice()));
+  $('patClear').addEventListener('click', () => {
+    const btn = $('patClear');
+    if (!clearArmed) {
+      btn.textContent = 'SURE?';
+      btn.classList.add('lit');
+      btn.style.setProperty('--c', 'var(--red)');
+      clearArmed = setTimeout(disarmClear, 2000);
+      return;
+    }
+    disarmClear();
+    writePattern(view, new Array(PAT_SIZE).fill(0));
+  });
+
+  $('songMode').addEventListener('click', toggleSong);
+  $('chainAdd').addEventListener('click', () => {
+    if (state.chain.length >= MAX_CHAIN) return;
+    state.chain.push(view);
+    sendChain();
+    const c = $('chain');
+    c.scrollLeft = c.scrollWidth;
+  });
+  $('chainDel').addEventListener('click', () => {
+    if (!state.chain.length) return;
+    state.chain.pop();
+    if (chainAt >= state.chain.length) chainAt = 0;
+    if (jumpTo >= state.chain.length) jumpTo = -1;
+    sendChain();
+  });
+}
+
+function disarmClear() {
+  clearTimeout(clearArmed);
+  clearArmed = 0;
+  const btn = $('patClear');
+  btn.textContent = 'CLEAR';
+  btn.classList.remove('lit');
+}
+
+function writePattern(p, data) {
+  state.patterns[p] = data;
+  engine.send({ t: 'pattern', p, data: Uint8Array.from(data) });
+  if (p === view) renderSteps();
+  renderPatterns();
+  save();
+}
+
+function songActive() {
+  return state.song && state.chain.length > 0;
+}
+
+function pickPattern(p) {
+  if (playing && songActive()) {
+    // The song owns playback; this only changes what you're editing.
+    setView(p);
+    return;
+  }
+  engine.send({ t: 'patSel', p });
+  if (!playing) setView(p);
+  else { queued = p === playPat ? -1 : p; renderPatterns(); }
+}
+
+function setView(p) {
+  view = p;
+  state.view = p;
+  renderSteps();
+  renderPatterns();
+  save();
+}
+
+function toggleSong() {
+  state.song = !state.song;
+  engine.send({ t: 'song', v: state.song });
+  if (state.song && playing) jumpTo = 0;
+  queued = -1;
+  renderPatterns();
+  renderChain();
+  save();
+}
+
+function sendChain() {
+  engine.send({ t: 'chain', data: Uint8Array.from(state.chain) });
+  renderChain();
+  save();
+}
+
+function renderPatterns() {
+  for (let p = 0; p < PATTERNS; p++) {
+    const b = ui.pats[p];
+    b.classList.toggle('lit', p === view);
+    b.classList.toggle('play', playing && p === playPat);
+    b.classList.toggle('blink', p === queued);
+    b.classList.toggle('full', state.patterns[p].some((v) => v > 0));
+  }
+}
+
+function renderChain() {
+  const host = $('chain');
+  if (ui.chips.length !== state.chain.length) {
+    host.innerHTML = '';
+    ui.chips = state.chain.map((_, k) => {
+      const c = document.createElement('button');
+      c.className = 'btn chip';
+      c.addEventListener('click', () => jumpChain(k));
+      return host.appendChild(c);
+    });
+  }
+  state.chain.forEach((p, k) => {
+    const c = ui.chips[k];
+    c.textContent = PAT_NAMES[p];
+    c.title = `Bar ${k + 1}: pattern ${PAT_NAMES[p]}`;
+    c.classList.toggle('lit', k === chainAt);
+    c.classList.toggle('blink', k === jumpTo);
+  });
+  host.classList.toggle('off', !state.song);
+  $('songMode').classList.toggle('lit', state.song);
+  const n = state.chain.length;
+  $('songInfo').textContent = n ? `${n} BAR${n > 1 ? 'S' : ''}` : '';
+  $('chainAdd').disabled = n >= MAX_CHAIN;
+  $('chainDel').disabled = n === 0;
+}
+
+function jumpChain(k) {
+  engine.send({ t: 'jump', i: k });
+  if (playing && songActive()) jumpTo = k;
+  else chainAt = k;
+  renderChain();
 }
 
 // ------------------------------------------------------------------ editor
@@ -388,6 +572,12 @@ function onTransport(v) {
   if (!v) {
     engine.clearTimed();
     setPlayhead(-1);
+    playPat = -1;
+    queued = -1;
+    jumpTo = -1;
+    chainAt = 0;
+    renderPatterns();
+    renderChain();
     $('brandDot').classList.remove('on');
   }
 }
@@ -511,7 +701,9 @@ function bindKeys() {
     const k = e.key.toLowerCase();
     const pad = KEYS.indexOf(k);
     if (pad >= 0) { hitPad(pad, e.shiftKey ? 127 : 110); return; }
+    if (k >= '1' && k <= '8') { pickPattern(+k - 1); return; }
     if (k === ' ') { e.preventDefault(); togglePlay(); }
+    else if (k === 'm') toggleSong();
     else if (k === 'x') toggleRec();
     else if (k === 'l') loopPress();
     else if (k === 'k') engine.send({ t: 'loop', cmd: 'stop' });
@@ -527,12 +719,25 @@ function bindKeys() {
 
 function bindEngine() {
   engine.addEventListener('ticks', (e) => {
-    let mask = 0, last = -1;
-    for (const ev of e.detail) { mask |= ev.m; last = ev.s; }
     if (!playing) return;
-    setPlayhead(last);
-    $('brandDot').classList.toggle('on', last % 4 === 0);
-    for (let i = 0; i < N; i++) if (mask & (1 << i)) flash(i, state.pattern[i * STEPS + last] / 127 || 0.8);
+    let mask = 0;
+    const ev = e.detail[e.detail.length - 1];
+    for (const d of e.detail) mask |= d.m;
+    if (ev.p !== playPat) {
+      // The engine switched patterns on this bar: follow it.
+      playPat = ev.p;
+      if (queued === ev.p) queued = -1;
+      if (ev.p !== view) setView(ev.p); else renderPatterns();
+    }
+    if (ev.c >= 0 && ev.c !== chainAt) {
+      chainAt = ev.c;
+      if (jumpTo === ev.c) jumpTo = -1;
+      renderChain();
+    }
+    setPlayhead(ev.s);
+    $('brandDot').classList.toggle('on', ev.s % 4 === 0);
+    const pat = state.patterns[ev.p];
+    for (let i = 0; i < N; i++) if (mask & (1 << i)) flash(i, pat[i * STEPS + ev.s] / 127 || 0.8);
   });
   engine.addEventListener('transport', (e) => onTransport(e.detail.v));
   engine.addEventListener('bpm', (e) => { state.bpm = e.detail.v; knobs.bpm.set(e.detail.v, false); });
@@ -545,12 +750,14 @@ function bindEngine() {
     loopBar = d.lb;
   });
   engine.addEventListener('pat', (e) => {
-    const { i, s, v } = e.detail;
-    state.pattern[i * STEPS + s] = v;
-    renderStep(i, s);
+    const { p, i, s, v } = e.detail;
+    state.patterns[p][i * STEPS + s] = v;
+    if (p === view) renderStep(i, s);
+    renderPatterns();
     save();
   });
   engine.addEventListener('sampled', (e) => onSampled(e.detail));
+  engine.addEventListener('patq', (e) => { queued = e.detail.q; renderPatterns(); });
 }
 
 function frame() {
@@ -576,6 +783,7 @@ async function boot() {
 
   buildHeader();
   buildPads();
+  buildPatterns();
   buildSeq();
   buildEditor();
   buildLooper();
@@ -588,7 +796,14 @@ async function boot() {
   engine.send({ t: 'loopGain', v: state.loopGain });
   engine.send({ t: 'loopBars', v: state.loopBars });
   engine.send({ t: 'loopSrc', v: state.loopSrc });
-  engine.send({ t: 'pattern', data: Uint8Array.from(state.pattern) });
+  state.patterns.forEach((data, p) => engine.send({ t: 'pattern', p, data: Uint8Array.from(data) }));
+  engine.send({ t: 'chain', data: Uint8Array.from(state.chain) });
+  engine.send({ t: 'song', v: state.song });
+  engine.send({ t: 'patSel', p: state.view });
+  view = state.view;
+  renderSteps();
+  renderPatterns();
+  renderChain();
   for (let i = 0; i < N; i++) {
     sendPad(i);
     setSample(i, makeSample(i, sr), 'synth');

@@ -27,6 +27,30 @@
       <div class="meter" id="meter" title="Output level"></div>
     </header>
 
+    <section class="panel patbar">
+      <div class="pb-group">
+        <div class="lbl">PATTERN</div>
+        <div class="pats" id="pats"></div>
+      </div>
+      <div class="pb-group">
+        <div class="lbl">EDIT</div>
+        <div class="pb-btns">
+          <button class="btn" id="patCopy" title="Copy this pattern">COPY</button>
+          <button class="btn" id="patPaste" title="Paste over this pattern" disabled>PASTE</button>
+          <button class="btn" id="patClear" title="Clear this pattern (press twice)">CLEAR</button>
+        </div>
+      </div>
+      <div class="pb-group pb-song">
+        <div class="lbl">SONG <span class="song-info" id="songInfo"></span></div>
+        <div class="song-row">
+          <button class="btn" id="songMode" title="Play the chain instead of a single pattern (M)">SONG</button>
+          <div class="chain" id="chain"></div>
+          <button class="btn" id="chainAdd" title="Append the pattern you're editing to the chain">+</button>
+          <button class="btn" id="chainDel" title="Remove the last chain entry">&minus;</button>
+        </div>
+      </div>
+    </section>
+
     <main class="deck">
       <section class="panel pads-panel">
         <div class="pads" id="pads"></div>
@@ -86,6 +110,8 @@
     <footer class="keys">
       <span><b>Q W E R / A S D F</b> pads</span>
       <span><b>Space</b> play</span>
+      <span><b>1–8</b> pattern</span>
+      <span><b>M</b> song</span>
       <span><b>X</b> rec</span>
       <span><b>L</b> loop</span>
       <span><b>K</b> loop stop</span>

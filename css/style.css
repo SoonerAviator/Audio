@@ -134,6 +134,30 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 }
 .led.on { background: var(--lc); box-shadow: 0 0 6px var(--lc); }
 
+/* ------------------------------------------------------------ patterns / song */
+.patbar { display: flex; align-items: flex-end; gap: 26px; flex-wrap: wrap; padding-block: 12px; }
+.pb-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+.pb-song { flex: 1 1 320px; }
+.pats, .pb-btns, .song-row { display: flex; gap: 6px; }
+.pat { width: 36px; padding: 0; position: relative; font-size: 12px; }
+.pat::after {
+  content: ""; position: absolute; left: 50%; bottom: 3px;
+  width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: transparent;
+}
+.pat.full::after { background: var(--faint); }
+.pat.play::after { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.song-info { color: var(--faint); margin-left: 6px; }
+#songMode { --c: var(--amber); }
+.chain {
+  flex: 1; min-width: 0; display: flex; gap: 4px; align-items: center;
+  overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px;
+  min-height: 32px;
+}
+.chain:empty::before { content: "Empty · press + to add the pattern you're editing"; color: var(--faint); font-size: 10px; white-space: nowrap; }
+.chip { flex: none; min-width: 26px; height: 28px; padding: 0 6px; font-size: 11px; --c: var(--amber); }
+.chain.off .chip { opacity: .45; }
+.chain.off .chip.lit { opacity: .8; }
+
 /* ------------------------------------------------------------ pads */
 .pads { display: grid; grid-template-columns: repeat(4, 84px); gap: 10px; }
 .pad {

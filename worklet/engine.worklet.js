@@ -12,6 +12,9 @@
 
 const TRACKS = 8;
 const STEPS = 16;
+const PATTERNS = 8;
+const PAT_SIZE = TRACKS * STEPS;
+const MAX_CHAIN = 64;
 const MAX_VOICES = 32;
 const METER_EVERY = 8;          // blocks between meter/looper status packets
 const RESTORE_CHUNK = 32768;    // samples per block when undoing an overdub
@@ -37,7 +40,9 @@ class PulseEngine extends AudioWorkletProcessor {
     this.decay = new Float32Array(TRACKS).fill(1);
     this.choke = new Uint8Array(TRACKS);
     this.mute = new Uint8Array(TRACKS);
-    this.pattern = new Uint8Array(TRACKS * STEPS);
+    this.patterns = new Uint8Array(PATTERNS * PAT_SIZE);
+    this.pat = 0;         // playing pattern
+    this.queued = -1;     // pattern to switch to at the next bar line
     this.skip = new Int8Array(TRACKS).fill(-1); // one-shot step skip after live-record quantize
     this.chokeDec = Math.exp(-6.9 / (0.004 * sampleRate)); // ~4 ms to -60 dB
 
@@ -64,8 +69,16 @@ class PulseEngine extends AudioWorkletProcessor {
     this.nextStep = 0;    // frame (since play) of the next step
     this.step = 0;        // index of the next step to fire
     this.lastStep = -1;
+    this.lastPat = 0;
     this.lastStepAt = 0;
     this.recArm = false;
+
+    // Song: a chain of pattern indices, one bar each, looping.
+    this.chain = new Uint8Array(MAX_CHAIN);
+    this.chainLen = 0;
+    this.chainPos = 0;
+    this.jump = -1;       // chain entry to jump to at the next bar line
+    this.song = false;
 
     // Looper (stereo). gen[] marks which samples the current overdub touched,
     // so undo restores exactly those without range bookkeeping or clears.
@@ -115,8 +128,23 @@ class PulseEngine extends AudioWorkletProcessor {
   onMsg(d) {
     switch (d.t) {
       case 'trig': this.trigger(d.i, d.v, 0); if (d.rec) this.liveRecord(d.i, d.v); break;
-      case 'step': this.pattern[d.i * STEPS + d.s] = d.v; break;
-      case 'pattern': this.pattern.set(d.data); break;
+      case 'step': this.patterns[d.p * PAT_SIZE + d.i * STEPS + d.s] = d.v; break;
+      case 'pattern': this.patterns.set(d.data, d.p === undefined ? 0 : d.p * PAT_SIZE); break;
+      case 'patSel': this.selectPattern(d.p); break;
+      case 'chain':
+        this.chainLen = Math.min(d.data.length, MAX_CHAIN);
+        this.chain.set(d.data.subarray(0, this.chainLen));
+        if (this.chainPos >= this.chainLen) this.chainPos = 0;
+        if (this.jump >= this.chainLen) this.jump = -1;
+        break;
+      case 'song':
+        this.song = !!d.v;
+        if (this.song && this.playing) this.jump = 0; // start the song on the next bar
+        break;
+      case 'jump':
+        if (d.i >= this.chainLen) break;
+        if (this.playing) this.jump = d.i; else this.chainPos = d.i;
+        break;
       case 'pad': this.setPad(d); break;
       case 'sample': this.samples[d.i] = d.data; break;
       case 'play': this.start(); break;
@@ -153,6 +181,31 @@ class PulseEngine extends AudioWorkletProcessor {
     if (d.mute !== undefined) this.mute[i] = d.mute ? 1 : 0;
   }
 
+  // ---------------------------------------------------------------- patterns
+
+  songActive() {
+    return this.song && this.chainLen > 0;
+  }
+
+  selectPattern(p) {
+    if (this.playing) this.queued = p;
+    else { this.pat = p; this.queued = -1; }
+    this.port.postMessage({ t: 'patq', q: this.queued });
+  }
+
+  // Runs between the last step of a bar and the first step of the next.
+  barEnd() {
+    if (this.songActive()) {
+      this.chainPos = this.jump >= 0 ? this.jump : (this.chainPos + 1) % this.chainLen;
+      this.jump = -1;
+      this.pat = this.chain[this.chainPos];
+    } else if (this.queued >= 0) {
+      this.pat = this.queued;
+      this.queued = -1;
+      this.port.postMessage({ t: 'patq', q: -1 });
+    }
+  }
+
   // ---------------------------------------------------------------- transport
 
   start() {
@@ -163,6 +216,14 @@ class PulseEngine extends AudioWorkletProcessor {
     this.step = 0;
     this.lastStep = -1;
     this.skip.fill(-1);
+    if (this.songActive()) {
+      this.pat = this.chain[this.chainPos];
+      this.jump = -1;
+    } else if (this.queued >= 0) {
+      this.pat = this.queued;
+      this.queued = -1;
+      this.port.postMessage({ t: 'patq', q: -1 });
+    }
     // Existing loop restarts on the first bar.
     if (this.lState >= L_PLAY) this.lBar = this.lBars;
     this.port.postMessage({ t: 'transport', v: true });
@@ -171,6 +232,8 @@ class PulseEngine extends AudioWorkletProcessor {
   stop() {
     if (!this.playing) return;
     this.playing = false;
+    this.chainPos = 0; // the song restarts from the top
+    this.jump = -1;
     if (this.lState === L_REC || this.lState === L_ARMED) this.lState = L_EMPTY;
     else if (this.lState === L_DUB) this.lState = L_PLAY;
     this.postLoop();
@@ -254,17 +317,22 @@ class PulseEngine extends AudioWorkletProcessor {
       const off = Math.max(0, Math.floor(this.nextStep - this.clock));
       const s = this.step;
       if (s === 0) barAt = off;
+      const base = this.pat * PAT_SIZE;
       let mask = 0;
       for (let t = 0; t < TRACKS; t++) {
         if (this.skip[t] === s) { this.skip[t] = -1; continue; }
-        const vel = this.pattern[t * STEPS + s];
+        const vel = this.patterns[base + t * STEPS + s];
         if (vel && !this.mute[t] && this.samples[t]) { this.trigger(t, vel, off); mask |= 1 << t; }
       }
-      this.port.postMessage({ t: 'tick', s, m: mask, f: currentFrame + off });
+      this.port.postMessage({
+        t: 'tick', s, m: mask, f: currentFrame + off, p: this.pat, c: this.songActive() ? this.chainPos : -1,
+      });
       this.lastStep = s;
+      this.lastPat = this.pat;
       this.lastStepAt = this.nextStep;
       this.nextStep += this.spStep * (s & 1 ? 1 - this.swing : 1 + this.swing);
       this.step = (s + 1) % STEPS;
+      if (this.step === 0) this.barEnd();
     }
     this.clock = end;
     return barAt;
@@ -275,11 +343,11 @@ class PulseEngine extends AudioWorkletProcessor {
     if (!this.playing || !this.recArm) return;
     const toPrev = this.clock - this.lastStepAt;
     const toNext = this.nextStep - this.clock;
-    let s;
-    if (this.lastStep >= 0 && toPrev <= toNext) s = this.lastStep;
-    else { s = this.step; this.skip[i] = s; } // already heard it; don't double-fire
-    this.pattern[i * STEPS + s] = vel;
-    this.port.postMessage({ t: 'pat', i, s, v: vel });
+    let s, p;
+    if (this.lastStep >= 0 && toPrev <= toNext) { s = this.lastStep; p = this.lastPat; }
+    else { s = this.step; p = this.pat; this.skip[i] = s; } // already heard it; don't double-fire
+    this.patterns[p * PAT_SIZE + i * STEPS + s] = vel;
+    this.port.postMessage({ t: 'pat', p, i, s, v: vel });
   }
 
   // ---------------------------------------------------------------- looper
