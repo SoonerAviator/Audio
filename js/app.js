@@ -38,7 +38,7 @@ function defaultState() {
   put(4, [14]);
   put(7, [7, 15], 70);
   return {
-    bpm: 120, swing: 0, master: 0.8, loopGain: 1, loopBars: 2, loopSrc: 0,
+    bpm: 120, swing: 0, master: 0.8, loopGain: 1, loopBars: 2, loopSrc: 1,
     pattern,
     pads: TRACKS.map((t) => ({ gain: 0.8, pitch: 0, pan: 0, decay: 1, choke: t.choke || 0, mute: false })),
   };
@@ -251,7 +251,7 @@ async function toggleSampling() {
     return;
   }
   if (!(await engine.enableInput())) {
-    $('editSrc').textContent = 'no audio input';
+    $('editSrc').textContent = 'mic unavailable · use LOAD';
     return;
   }
   sampling = sel;
@@ -465,7 +465,7 @@ function buildLooper() {
 
 async function loopPress() {
   if (loop.s === LOOP.EMPTY && state.loopSrc === 0 && !(await engine.enableInput())) {
-    $('loopState').textContent = 'NO AUDIO INPUT · TRY DRUMS';
+    $('loopState').textContent = 'MIC UNAVAILABLE · USE DRUMS SOURCE';
     return;
   }
   engine.send({ t: 'loop', cmd: 'rec' });

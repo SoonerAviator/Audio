@@ -14,7 +14,14 @@ export class Engine extends EventTarget {
 
   async start() {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
-    await this.ctx.audioWorklet.addModule(new URL('../worklet/engine.worklet.js', import.meta.url));
+    const url = new URL('../worklet/engine.worklet.js', import.meta.url);
+    try {
+      await this.ctx.audioWorklet.addModule(url);
+    } catch {
+      // Some sandboxed hosts refuse worklet URLs but allow blob: modules.
+      const src = await (await fetch(url)).text();
+      await this.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    }
     this.node = new AudioWorkletNode(this.ctx, 'pulse-engine', {
       numberOfInputs: 1,
       numberOfOutputs: 1,

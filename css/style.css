@@ -51,7 +51,10 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 
 /* ------------------------------------------------------------ layout */
 .app {
-  max-width: 1320px; margin: 0 auto; padding: 16px;
+  max-width: 1320px; margin: 0 auto;
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   display: flex; flex-direction: column; gap: 12px;
 }
 .panel {
@@ -237,7 +240,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   .pads { grid-template-columns: repeat(4, 1fr); }
 }
 @media (max-width: 640px) {
-  .app { padding: 10px; }
+  .app { padding-block: 10px; }
   .panel { padding: 10px; }
   .bar { gap: 14px; }
   .pad { height: 72px; }
