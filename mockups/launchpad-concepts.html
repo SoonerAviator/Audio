@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pulse Launchpad Concepts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one hardware "device" per concept on a dark bench, tabs on top, notes underneath. */
+:root {
+  --bench: #0a0b0d;
+  --chassis: #141518;
+  --chassis-edge: #1f2125;
+  --unlit: #1c1d21;
+  --ink: #d9dde3;
+  --dim: #6b727c;
+  --faint: #3a3f46;
+  --white: #f4f6fa;
+  --green: #3dffa8;
+  --amber: #ffb020;
+  --red: #ff3b5c;
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bench);
+  color: var(--ink);
+  font: 12px/1.5 var(--ui);
+  letter-spacing: 0.05em;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+button { font: inherit; color: inherit; letter-spacing: inherit; }
+[hidden] { display: none !important; }
+.wrap {
+  max-width: 1180px; margin: 0 auto;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 18px;
+}
+
+/* ---------------------------------------------------------------- top bar */
+.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.brand { font-weight: 700; letter-spacing: 0.3em; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+.brand i { width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tab {
+  height: 34px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+  background: var(--chassis); border: 1px solid var(--chassis-edge); color: var(--dim);
+  font-size: 11px; font-weight: 600;
+}
+.tab b { color: var(--faint); margin-right: 6px; }
+.tab[aria-selected="true"] { color: var(--white); border-color: var(--faint); background: #1b1d21; }
+.tab[aria-selected="true"] b { color: var(--green); }
+.tab:focus-visible, .rb:focus-visible, .pd:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
+.demo { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; }
+.demo button {
+  width: 40px; height: 34px; border-radius: 8px; cursor: pointer;
+  background: var(--chassis); border: 1px solid var(--chassis-edge); color: var(--green);
+}
+.demo button.on { background: color-mix(in srgb, var(--green) 20%, var(--chassis)); border-color: var(--green); box-shadow: 0 0 14px -3px var(--green); }
+
+/* ---------------------------------------------------------------- device */
+.stage { display: grid; gap: 14px; justify-items: center; }
+.scroll { width: 100%; overflow-x: auto; padding: 4px 0 10px; }
+.device {
+  margin: 0 auto;
+  background: linear-gradient(180deg, #17181b, var(--chassis));
+  border: 1px solid var(--chassis-edge);
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: 0 30px 60px -30px #000, inset 0 1px 0 #ffffff0d;
+  display: grid; gap: 12px;
+}
+.lcd {
+  display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  font: 11px var(--mono); color: var(--green);
+  background: #07120d; border: 1px solid #10261b; border-radius: 6px;
+  padding: 6px 10px; text-shadow: 0 0 6px #3dffa866;
+}
+.lcd span { white-space: nowrap; }
+.lcd .k { color: #2a7a55; margin-right: 4px; }
+.grid { display: grid; gap: 6px; align-items: center; justify-items: stretch; }
+
+/* pads */
+.pd {
+  --c: var(--white);
+  aspect-ratio: 1; min-width: 0;
+  border-radius: 6px; border: 0; padding: 0; cursor: pointer;
+  background: var(--unlit);
+  box-shadow: inset 0 1px 0 #ffffff0a, inset 0 -2px 0 #0006;
+  position: relative;
+  transition: background .07s, box-shadow .1s;
+  touch-action: none;
+}
+.pd::after { /* diffuser */
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(circle at 50% 40%, #ffffff30, transparent 65%);
+  opacity: 0; transition: opacity .1s;
+}
+.pd.dim { background: color-mix(in srgb, var(--c) 20%, var(--unlit)); }
+.pd.mid { background: color-mix(in srgb, var(--c) 55%, var(--unlit)); }
+.pd.on { background: var(--c); box-shadow: 0 0 12px -2px var(--c), inset 0 -2px 0 #0004; }
+.pd.on::after { opacity: .7; }
+.pd.acc { background: color-mix(in srgb, var(--c) 75%, #fff); box-shadow: 0 0 18px 0 var(--c); }
+.pd.acc::after { opacity: 1; }
+.pd.ph { box-shadow: inset 0 0 0 2px #ffffffb0; }
+.pd.ph.dim, .pd.ph:not(.on):not(.acc):not(.mid) { background: color-mix(in srgb, var(--white) 14%, var(--unlit)); }
+.pd.ph.on, .pd.ph.acc { background: color-mix(in srgb, var(--c) 50%, #fff); box-shadow: 0 0 24px 2px var(--c); }
+.pd.hit { background: color-mix(in srgb, var(--c) 60%, #fff) !important; box-shadow: 0 0 30px 4px var(--c) !important; }
+.pd.blink { animation: blink .5s steps(1) infinite; }
+@keyframes blink { 50% { background: var(--unlit); box-shadow: none; } }
+.pd .lb {
+  position: absolute; left: 6px; bottom: 4px; font-size: 9px; font-weight: 700;
+  color: #0009; pointer-events: none; letter-spacing: 0.1em;
+}
+.pd.dim .lb, .pd:not(.on):not(.acc):not(.mid):not(.hit) .lb { color: color-mix(in srgb, var(--c) 70%, #fff); opacity: .8; }
+
+/* round function buttons */
+.rb {
+  --c: var(--dim);
+  width: 74%; aspect-ratio: 1; justify-self: center; align-self: center;
+  border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  background: #202226;
+  box-shadow: inset 0 1px 0 #ffffff12, inset 0 -2px 0 #0006;
+  color: var(--dim); font-size: clamp(6px, 0.72vw, 8.5px); font-weight: 700; line-height: 1; letter-spacing: 0;
+  display: grid; place-items: center; overflow: hidden;
+}
+.rb.dim { color: color-mix(in srgb, var(--c) 80%, #fff); background: color-mix(in srgb, var(--c) 18%, #202226); }
+.rb.on { color: #000c; background: var(--c); box-shadow: 0 0 12px -2px var(--c); }
+.rb.blink { animation: rblink .5s steps(1) infinite; }
+@keyframes rblink { 50% { background: #202226; color: var(--dim); box-shadow: none; } }
+.gap { visibility: hidden; }
+.logo { justify-self: center; width: 40%; aspect-ratio: 1; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); opacity: .25; transition: opacity .05s; }
+.logo.on { opacity: 1; }
+
+/* side labels (concept B) */
+.tl { font-size: 9px; font-weight: 700; color: var(--dim); text-align: right; padding-right: 4px; white-space: nowrap; }
+
+/* knob strip under devices */
+.strip { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--dim); font-size: 10px; }
+.knob { width: 34px; height: 34px; border-radius: 50%; background: #202226; box-shadow: inset 0 1px 0 #ffffff12; position: relative; }
+.knob::after { content: ""; position: absolute; left: 50%; top: 5px; width: 2px; height: 9px; margin-left: -1px; border-radius: 1px; background: var(--ink); transform-origin: 50% 12px; transform: rotate(var(--r, 0deg)); }
+.kn { display: grid; justify-items: center; gap: 4px; }
+
+/* notes */
+.notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 980px; margin: 0 auto; width: 100%; }
+.note { background: var(--chassis); border: 1px solid var(--chassis-edge); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.note h3 { margin: 0 0 6px; font-size: 10px; letter-spacing: 0.16em; color: var(--dim); }
+.note ul { margin: 0; padding-left: 16px; color: var(--ink); font-size: 12px; letter-spacing: 0.02em; line-height: 1.55; }
+.note.good h3 { color: var(--green); }
+.note.bad h3 { color: var(--amber); }
+.lede { max-width: 72ch; margin: 0 auto; text-align: center; color: var(--dim); font-size: 13px; letter-spacing: 0.02em; text-wrap: balance; }
+.lede b { color: var(--ink); font-weight: 600; }
+
+@media (max-width: 760px) {
+  .notes { grid-template-columns: 1fr; }
+  .demo { margin-left: 0; }
+  .device { padding: 10px; border-radius: 16px; }
+  .grid { gap: 4px; }
+  .pd .lb { font-size: 7px; left: 4px; bottom: 3px; letter-spacing: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd, .pd::after { transition: none; }
+  .pd.blink, .rb.blink { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><i></i>PULSE</div>
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+    <div class="demo"><span id="demoLbl">Demo playhead</span><button id="play" aria-label="Play demo">▶</button></div>
+  </header>
+  <p class="lede" id="lede"></p>
+  <section class="stage" id="stage"></section>
+  <div class="notes" id="notes"></div>
+</div>
+
+<script>
+// Mockup only: no audio. A fake 120 BPM playhead drives the lights so each layout can be judged in motion.
+const TRACKS = [
+  { n: 'KICK', c: '#ff3b5c' }, { n: 'SNARE', c: '#ff8a1f' }, { n: 'CLAP', c: '#ffd23f' }, { n: 'C.HAT', c: '#3dffa8' },
+  { n: 'O.HAT', c: '#22d3ff' }, { n: 'TOM', c: '#6b7bff' }, { n: 'RIM', c: '#b46bff' }, { n: 'PERC', c: '#ff5ad8' },
+];
+const PAT_C = ['#3dffa8', '#22d3ff', '#6b7bff', '#b46bff', '#ff5ad8', '#ff3b5c', '#ff8a1f', '#ffd23f'];
+const PAT_N = 'ABCDEFGH';
+const STEPS = 16;
+
+// Demo data: same groove and fill as the app's defaults.
+const patterns = Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => new Array(STEPS).fill(0)));
+const put = (p, t, s, v = 100) => s.forEach((x) => (patterns[p][t][x] = v));
+put(0, 0, [8, 10]); put(0, 0, [0], 127); put(0, 1, [4, 12]); put(0, 2, [12], 80);
+put(0, 3, [0, 4, 8, 12]); put(0, 3, [2, 6, 10], 70); put(0, 4, [14]); put(0, 7, [7, 15], 70);
+put(1, 0, [8]); put(1, 0, [0], 127); put(1, 1, [4, 10, 13, 14]); put(1, 1, [12, 15], 127);
+put(1, 3, [0, 2, 4, 6, 8]); put(1, 4, [10]); put(1, 5, [11, 13, 15], 90);
+const chain = [0, 0, 0, 1];
+
+const S = { pat: 0, step: -1, playing: false, song: false, chainAt: 0, mutes: new Array(8).fill(false), sel: 0, vel: 100, loop: 0 };
+
+const $ = (id) => document.getElementById(id);
+function el(tag, cls, parent, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function setPad(e, c, state, ph = false) {
+  e.style.setProperty('--c', c);
+  e.classList.toggle('dim', state === 'dim');
+  e.classList.toggle('mid', state === 'mid');
+  e.classList.toggle('on', state === 'on');
+  e.classList.toggle('acc', state === 'acc');
+  e.classList.toggle('ph', ph);
+}
+const velState = (v) => (v >= 120 ? 'acc' : v > 0 ? 'on' : 'off');
+function flash(e) {
+  e.classList.add('hit');
+  setTimeout(() => e.classList.remove('hit'), 110);
+}
+function tap(e, fn) {
+  e.addEventListener('pointerdown', (ev) => { ev.preventDefault(); fn(ev); });
+}
+function lcd(parent) {
+  const box = el('div', 'lcd', parent);
+  const f = {};
+  for (const k of ['BPM', 'PAT', 'MODE', 'STEP']) {
+    const s = el('span', '', box);
+    el('span', 'k', s, k);
+    f[k] = el('span', '', s);
+  }
+  f.BPM.textContent = '120';
+  return f;
+}
+function toggleStep(t, s) {
+  const p = patterns[S.pat][t];
+  p[s] = p[s] ? 0 : S.vel;
+}
+
+// Build a Launchpad-style frame: a cols x rows pad grid with optional round-button rows/columns around it.
+function frame(parent, cols, rows, o = {}) {
+  const g = el('div', 'grid', parent);
+  const L = o.left ? 1 : 0, T = o.top ? 1 : 0;
+  const side = o.side || '0.72fr';
+  const colT = [];
+  if (o.labels) colT.push('auto');
+  if (o.left) colT.push(side);
+  colT.push(`repeat(${cols}, minmax(0, 1fr))`);
+  if (o.right) colT.push(side);
+  g.style.gridTemplateColumns = colT.join(' ');
+  g.style.width = o.width || '100%';
+  const off = o.labels ? 1 : 0;
+  const at = (e, r, c) => { e.style.gridRow = r + 1; e.style.gridColumn = c + 1 + off; return e; };
+  const out = { g, cells: [], top: [], bottom: [], left: [], right: [], labels: [] };
+  if (o.top) for (let c = 0; c < cols; c++) out.top.push(at(el('button', 'rb', g), 0, c + L));
+  if (o.top && o.right) out.corner = at(el('div', 'logo', g), 0, cols + L);
+  for (let r = 0; r < rows; r++) {
+    if (o.labels) { const l = el('div', 'tl', g); l.style.gridRow = r + T + 1; l.style.gridColumn = 1; out.labels.push(l); }
+    if (o.left) out.left.push(at(el('button', 'rb', g), r + T, 0));
+    const row = [];
+    for (let c = 0; c < cols; c++) row.push(at(el('button', 'pd', g), r + T, c + L));
+    out.cells.push(row);
+    if (o.right) out.right.push(at(el('button', 'rb', g), r + T, cols + L));
+  }
+  if (o.bottom) for (let c = 0; c < cols; c++) out.bottom.push(at(el('button', 'rb', g), rows + T, c + L));
+  return out;
+}
+function rb(e, label, c, state) {
+  e.textContent = label;
+  e.style.setProperty('--c', c);
+  e.classList.toggle('dim', state === 'dim');
+  e.classList.toggle('on', state === 'on');
+  e.classList.toggle('blink', state === 'blink');
+}
+
+// ================================================================ A: Session
+const A = {
+  name: 'Session',
+  lede: '<b>A · Session.</b> A straight Launchpad: one 8×8 grid that changes job by mode. SEQ shows 8 tracks × 8 steps (◀ ▶ flips between steps 1–8 and 9–16), PADS turns the grid into 8 big pads, SONG shows patterns on the top row and the chain below.',
+  good: ['Most authentic Launchpad feel', 'Huge pads; great on tablets and phones', 'Could mirror a real Launchpad over MIDI later'],
+  bad: ['Only half the pattern visible at once', 'Modes add a layer to learn', 'Pad editor and looper live off-grid'],
+  mode: 'seq', page: 0,
+  build(stage) {
+    const sc = el('div', 'scroll', stage);
+    const dev = el('div', 'device', sc);
+    dev.style.width = 'min(560px, 100%)';
+    this.lcd = lcd(dev);
+    this.f = frame(dev, 8, 8, { top: true, right: true });
+    const tops = ['◀', '▶', '▲', '▼', 'SEQ', 'PADS', 'SONG', 'PLAY'];
+    this.f.top.forEach((b, i) => { b.textContent = tops[i]; b.title = tops[i]; });
+    tap(this.f.top[0], () => { this.page = 0; this.render(); });
+    tap(this.f.top[1], () => { this.page = 1; this.render(); });
+    tap(this.f.top[2], () => { S.pat = (S.pat + 7) % 8; render(); });
+    tap(this.f.top[3], () => { S.pat = (S.pat + 1) % 8; render(); });
+    ['seq', 'pads', 'song'].forEach((m, i) => tap(this.f.top[4 + i], () => { this.mode = m; this.render(); }));
+    tap(this.f.top[7], togglePlay);
+    this.f.right.forEach((b, t) => tap(b, () => { S.mutes[t] = !S.mutes[t]; render(); }));
+    this.f.cells.forEach((row, r) => row.forEach((cell, c) => tap(cell, () => this.press(r, c))));
+    const strip = el('div', 'strip', stage);
+    strip.textContent = 'Right column: track mutes · ▲ ▼ pattern · ◀ ▶ step page';
+  },
+  padOf(r, c) { return (r >> 1) * 2 + (c >> 2); }, // 8 pads of 4×2 cells
+  press(r, c) {
+    if (this.mode === 'seq') { toggleStep(r, this.page * 8 + c); render(); }
+    else if (this.mode === 'pads') {
+      const p = this.padOf(r, c);
+      this.f.cells.forEach((row, rr) => row.forEach((cell, cc) => this.padOf(rr, cc) === p && flash(cell)));
+    } else if (this.mode === 'song') {
+      if (r === 0) { S.pat = c; render(); }
+      else { const k = (r - 1) * 8 + c; if (k < chain.length) S.chainAt = k; else if (chain.length < 56) chain.push(S.pat); render(); }
+    }
+  },
+  render() {
+    const f = this.f, st = S.step;
+    f.top.forEach((b, i) => {
+      if (i < 2) rb(b, b.textContent, '#f4f6fa', this.mode === 'seq' && this.page === i ? 'on' : this.mode === 'seq' ? 'dim' : '');
+      else if (i < 4) rb(b, b.textContent, '#f4f6fa', 'dim');
+      else if (i < 7) rb(b, b.textContent, '#ffb020', this.mode === ['seq', 'pads', 'song'][i - 4] ? 'on' : 'dim');
+      else rb(b, S.playing ? 'STOP' : 'PLAY', '#3dffa8', S.playing ? 'on' : 'dim');
+    });
+    f.right.forEach((b, t) => rb(b, '', TRACKS[t].c, S.mutes[t] ? '' : 'dim'));
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const cell = f.cells[r][c];
+      if (this.mode === 'seq') {
+        const s = this.page * 8 + c, v = patterns[S.pat][r][s];
+        setPad(cell, TRACKS[r].c, S.mutes[r] ? (v ? 'dim' : 'off') : v ? velState(v) : 'dim', st === s);
+      } else if (this.mode === 'pads') {
+        setPad(cell, TRACKS[this.padOf(r, c)].c, 'mid');
+      } else {
+        if (r === 0) setPad(cell, PAT_C[c], c === S.pat ? 'on' : patterns[c].some((t) => t.some(Boolean)) ? 'mid' : 'dim');
+        else {
+          const k = (r - 1) * 8 + c;
+          setPad(cell, k < chain.length ? PAT_C[chain[k]] : '#f4f6fa', k < chain.length ? (k === S.chainAt && S.song ? 'acc' : 'mid') : 'off', k === S.chainAt && S.playing && S.song);
+        }
+      }
+      cell.innerHTML = this.mode === 'song' && r > 0 && (r - 1) * 8 + c < chain.length ? `<span class="lb">${PAT_N[chain[(r - 1) * 8 + c]]}</span>` : this.mode === 'song' && r === 0 ? `<span class="lb">${PAT_N[c]}</span>` : '';
+    }
+    if (this.mode === 'pads') {
+      f.cells.forEach((row, r) => row.forEach((cell, c) => {
+        if ((r & 1) === 1 && (c & 3) === 0) cell.innerHTML = `<span class="lb">${TRACKS[this.padOf(r, c)].n}</span>`;
+      }));
+    }
+    this.lcd.PAT.textContent = PAT_N[S.pat];
+    this.lcd.MODE.textContent = this.mode.toUpperCase() + (this.mode === 'seq' ? (this.page ? ' 9–16' : ' 1–8') : '');
+    this.lcd.STEP.textContent = st < 0 ? '--' : String(st + 1).padStart(2, '0');
+  },
+  tick(hits) {
+    if (this.mode !== 'pads') return;
+    this.f.cells.forEach((row, r) => row.forEach((cell, c) => hits.includes(this.padOf(r, c)) && flash(cell)));
+  },
+};
+
+// ================================================================ B: Wide grid
+const B = {
+  name: 'Wide grid',
+  lede: '<b>B · Wide grid.</b> Two Launchpads side by side: all 8 tracks × 16 steps at once, with no modes. Patterns and transport sit on the round buttons above, mutes on the right, and the 8 drum pads run along the bottom under their steps.',
+  good: ['Closest to how the app works today', 'Whole pattern visible, nothing hidden', 'Every function is one press away'],
+  bad: ['Needs width; scrolls sideways on phones', 'Pads are smaller than in A or C', 'Busier to look at'],
+  build(stage) {
+    const sc = el('div', 'scroll', stage);
+    const dev = el('div', 'device', sc);
+    dev.style.width = 'max(760px, min(1080px, 100%))';
+    this.lcd = lcd(dev);
+    this.f = frame(dev, 16, 8, { top: true, right: true, labels: true, side: '0.8fr' });
+    this.f.labels.forEach((l, t) => { l.textContent = TRACKS[t].n; l.style.color = TRACKS[t].c; });
+    this.f.top.forEach((b, i) => {
+      if (i < 8) tap(b, () => { S.pat = i; render(); });
+      else if (i === 8) tap(b, () => { S.song = !S.song; render(); });
+      else if (i === 10) tap(b, togglePlay);
+      else if (i === 11) tap(b, () => { S.rec = !S.rec; render(); });
+      else if (i === 12) tap(b, () => { S.loop = (S.loop + 1) % 3; render(); });
+    });
+    this.f.right.forEach((b, t) => tap(b, () => { S.mutes[t] = !S.mutes[t]; render(); }));
+    this.f.cells.forEach((row, r) => row.forEach((cell, c) => tap(cell, () => { toggleStep(r, c); render(); })));
+    // drum pad row: 8 pads, each two columns wide, aligned to the grid
+    const pads = el('div', 'grid', dev);
+    pads.style.gridTemplateColumns = getComputedStyle(this.f.g).gridTemplateColumns;
+    this.pads = TRACKS.map((t, i) => {
+      const p = el('button', 'pd', pads);
+      p.style.gridColumn = `${2 + i * 2} / span 2`;
+      p.style.aspectRatio = '2.1 / 1';
+      p.innerHTML = `<span class="lb">${t.n}</span>`;
+      setPad(p, t.c, 'mid');
+      tap(p, () => flash(p));
+      return p;
+    });
+    this.padRow = pads;
+    const strip = el('div', 'strip', stage);
+    strip.textContent = 'Top: patterns A–H · SONG · PLAY · REC · LOOP · Right: mutes';
+  },
+  render() {
+    const f = this.f, st = S.step;
+    this.padRow.style.gridTemplateColumns = getComputedStyle(f.g).gridTemplateColumns;
+    const labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'SONG', '', 'PLAY', 'REC', 'LOOP', 'UNDO', 'COPY', 'CLR'];
+    f.top.forEach((b, i) => {
+      if (i < 8) rb(b, labels[i], PAT_C[i], i === S.pat ? 'on' : patterns[i].some((t) => t.some(Boolean)) ? 'dim' : '');
+      else if (i === 8) rb(b, 'SONG', '#ffb020', S.song ? 'on' : 'dim');
+      else if (i === 9) { b.className = 'rb gap'; }
+      else if (i === 10) rb(b, S.playing ? 'STOP' : 'PLAY', '#3dffa8', S.playing ? 'on' : 'dim');
+      else if (i === 11) rb(b, 'REC', '#ff3b5c', S.rec ? 'on' : 'dim');
+      else if (i === 12) rb(b, 'LOOP', S.loop === 2 ? '#ffb020' : '#ff3b5c', S.loop === 0 ? 'dim' : S.loop === 1 ? 'blink' : 'on');
+      else rb(b, labels[i], '#f4f6fa', 'dim');
+    });
+    f.right.forEach((b, t) => rb(b, 'M', '#ffb020', S.mutes[t] ? 'on' : ''));
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 16; c++) {
+      const v = patterns[S.pat][r][c];
+      const beat = (c >> 2) & 1;
+      setPad(f.cells[r][c], TRACKS[r].c, S.mutes[r] ? (v ? 'dim' : 'off') : v ? velState(v) : beat ? 'off' : 'dim', st === c);
+    }
+    this.lcd.PAT.textContent = PAT_N[S.pat] + (S.song ? ` · SONG ${S.chainAt + 1}/${chain.length}` : '');
+    this.lcd.MODE.textContent = ['LOOP EMPTY', 'LOOP ARMED', 'LOOP PLAY'][S.loop];
+    this.lcd.STEP.textContent = st < 0 ? '--' : String(st + 1).padStart(2, '0');
+  },
+  tick(hits) { hits.forEach((t) => flash(this.pads[t])); },
+};
+
+// ================================================================ C: Pro split
+const C = {
+  name: 'Pro split',
+  lede: '<b>C · Pro split.</b> Launchpad Pro\'s drum-and-sequencer layout in one 8×8 grid. The top two rows are the selected track\'s 16 steps, then a velocity row and the song chain; the bottom half holds the 8 drum pads. Round buttons around the edge pick tracks, mutes, patterns and transport.',
+  good: ['Play pads and edit steps on one grid', 'Velocity row sets how hard new steps hit', 'Fits phones without scrolling'],
+  bad: ['Edits one track at a time', 'Groove overview needs a glance at the pads', 'Most different from today\'s app'],
+  build(stage) {
+    const sc = el('div', 'scroll', stage);
+    const dev = el('div', 'device', sc);
+    dev.style.width = 'min(600px, 100%)';
+    this.lcd = lcd(dev);
+    this.f = frame(dev, 8, 8, { top: true, right: true, left: true, bottom: true });
+    this.f.left.forEach((b, t) => tap(b, () => { S.sel = t; render(); }));
+    this.f.right.forEach((b, t) => tap(b, () => { S.mutes[t] = !S.mutes[t]; render(); }));
+    this.f.bottom.forEach((b, p) => tap(b, () => { S.pat = p; render(); }));
+    const topFns = [togglePlay, () => { S.rec = !S.rec; }, () => { S.loop = (S.loop + 1) % 3; }, null, null, () => { S.song = !S.song; }, null, null];
+    this.f.top.forEach((b, i) => topFns[i] && tap(b, () => { topFns[i](); render(); }));
+    this.f.cells.forEach((row, r) => row.forEach((cell, c) => tap(cell, () => this.press(r, c))));
+    const strip = el('div', 'strip', stage);
+    for (const [n, r] of [['LEVEL', -40], ['PITCH', 0], ['PAN', 0], ['DECAY', 120]]) {
+      const k = el('div', 'kn', strip);
+      el('div', 'knob', k).style.setProperty('--r', r + 'deg');
+      el('span', '', k, n);
+    }
+    el('span', '', strip, 'Left: track select · Right: mutes · Bottom: patterns A–H');
+  },
+  padOf(r, c) { return ((r - 4) >> 1) * 4 + (c >> 1); }, // rows 4–7: 8 pads of 2×2
+  press(r, c) {
+    if (r < 2) { toggleStep(S.sel, r * 8 + c); }
+    else if (r === 2) { S.vel = Math.round(16 + (c / 7) * 111); }
+    else if (r === 3) { if (c < chain.length) S.chainAt = c; else if (chain.length < 8) chain.push(S.pat); }
+    else {
+      const p = this.padOf(r, c);
+      S.sel = p;
+      this.f.cells.forEach((row, rr) => row.forEach((cell, cc) => rr >= 4 && this.padOf(rr, cc) === p && flash(cell)));
+    }
+    render();
+  },
+  render() {
+    const f = this.f, st = S.step, t = TRACKS[S.sel];
+    const tops = [[S.playing ? 'STOP' : 'PLAY', '#3dffa8', S.playing], ['REC', '#ff3b5c', S.rec], ['LOOP', S.loop === 2 ? '#ffb020' : '#ff3b5c', S.loop], ['UNDO', '#f4f6fa'], ['COPY', '#f4f6fa'], ['SONG', '#ffb020', S.song], ['CLR', '#f4f6fa'], ['VEL', '#f4f6fa']];
+    f.top.forEach((b, i) => {
+      const [l, c, on] = tops[i];
+      rb(b, l, c, i === 2 && S.loop === 1 ? 'blink' : on ? 'on' : 'dim');
+    });
+    f.left.forEach((b, i) => rb(b, '', TRACKS[i].c, i === S.sel ? 'on' : 'dim'));
+    f.right.forEach((b, i) => rb(b, 'M', '#ffb020', S.mutes[i] ? 'on' : ''));
+    f.bottom.forEach((b, i) => rb(b, PAT_N[i], PAT_C[i], i === S.pat ? 'on' : patterns[i].some((x) => x.some(Boolean)) ? 'dim' : ''));
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const cell = f.cells[r][c];
+      cell.innerHTML = '';
+      if (r < 2) {
+        const s = r * 8 + c, v = patterns[S.pat][S.sel][s];
+        setPad(cell, t.c, v ? velState(v) : 'dim', st === s);
+      } else if (r === 2) {
+        const level = Math.round(16 + (c / 7) * 111);
+        setPad(cell, '#f4f6fa', Math.abs(level - S.vel) < 8 ? 'on' : level < S.vel ? 'mid' : 'dim');
+      } else if (r === 3) {
+        setPad(cell, c < chain.length ? PAT_C[chain[c]] : '#f4f6fa', c < chain.length ? (c === S.chainAt && S.song ? 'acc' : 'mid') : 'off', S.song && S.playing && c === S.chainAt);
+        if (c < chain.length) cell.innerHTML = `<span class="lb">${PAT_N[chain[c]]}</span>`;
+      } else {
+        const p = this.padOf(r, c);
+        setPad(cell, TRACKS[p].c, p === S.sel ? 'on' : S.mutes[p] ? 'dim' : 'mid');
+        if ((r & 1) === 1 && (c & 1) === 0) cell.innerHTML = `<span class="lb">${TRACKS[p].n}</span>`;
+      }
+    }
+    this.lcd.PAT.textContent = PAT_N[S.pat];
+    this.lcd.MODE.textContent = `${t.n} · VEL ${S.vel}`;
+    this.lcd.STEP.textContent = st < 0 ? '--' : String(st + 1).padStart(2, '0');
+  },
+  tick(hits) {
+    this.f.cells.forEach((row, r) => row.forEach((cell, c) => r >= 4 && hits.includes(this.padOf(r, c)) && flash(cell)));
+  },
+};
+
+// ================================================================ shell
+const CONCEPTS = { A, B, C };
+let active = 'A';
+let built = {};
+function show(id) {
+  active = id;
+  for (const b of $('tabs').children) b.setAttribute('aria-selected', b.dataset.id === id);
+  const stage = $('stage');
+  for (const k in built) built[k].hidden = k !== id;
+  if (!built[id]) { built[id] = el('div', 'stage', stage); CONCEPTS[id].build(built[id]); }
+  const c = CONCEPTS[id];
+  $('lede').innerHTML = c.lede;
+  const notes = $('notes');
+  notes.innerHTML = '';
+  const n1 = el('div', 'note good', notes); el('h3', '', n1, 'STRENGTHS');
+  const u1 = el('ul', '', n1); c.good.forEach((g) => el('li', '', u1, g));
+  const n2 = el('div', 'note bad', notes); el('h3', '', n2, 'TRADE-OFFS');
+  const u2 = el('ul', '', n2); c.bad.forEach((g) => el('li', '', u2, g));
+  const n3 = el('div', 'note', notes); el('h3', '', n3, 'TRY');
+  el('div', '', n3, 'Press ▶ to run the playhead. Tap steps to toggle them, tap pads to flash them, and use the round buttons around the grid.');
+  render();
+}
+function render() {
+  CONCEPTS[active].render();
+  $('play').classList.toggle('on', S.playing);
+  $('play').textContent = S.playing ? '■' : '▶';
+}
+
+let timer = 0;
+function togglePlay() {
+  S.playing = !S.playing;
+  clearInterval(timer);
+  if (S.playing) {
+    S.step = -1;
+    S.chainAt = 0;
+    S.stepCount = 0;
+    if (S.song && chain.length) S.pat = chain[0];
+    timer = setInterval(advance, 125); // 16ths at 120 BPM
+    advance();
+  } else S.step = -1;
+  render();
+}
+function advance() {
+  S.step = (S.step + 1) % STEPS;
+  if (S.step === 0 && S.song && chain.length && timer && S.stepCount) {
+    S.chainAt = (S.chainAt + 1) % chain.length;
+    S.pat = chain[S.chainAt];
+  }
+  S.stepCount = (S.stepCount || 0) + 1;
+  const hits = [];
+  patterns[S.pat].forEach((row, t) => row[S.step] && !S.mutes[t] && hits.push(t));
+  render();
+  CONCEPTS[active].tick(hits);
+  const logo = CONCEPTS[active].f.corner;
+  if (logo) logo.classList.toggle('on', S.step % 4 === 0);
+}
+
+for (const id of Object.keys(CONCEPTS)) {
+  const b = el('button', 'tab', $('tabs'));
+  b.dataset.id = id;
+  b.setAttribute('role', 'tab');
+  b.innerHTML = `<b>${id}</b>${CONCEPTS[id].name}`;
+  b.addEventListener('click', () => show(id));
+}
+$('play').addEventListener('click', togglePlay);
+window.addEventListener('resize', () => render());
+show('A');
+</script>
+</body>
+</html>
