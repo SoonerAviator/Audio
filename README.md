@@ -14,13 +14,19 @@ Open http://localhost:8000 and press the power button.
 
 ## Features
 
-- **Drum machine**: 8 patterns (A–H) of 8 tracks × 16 steps, synthesized default kit, accents (Shift+click), drag to paint, per-track mute, swing, live recording of pad hits quantized to the grid (REC).
-- **Patterns & song**: while playing, picking a pattern queues it for the next bar line. COPY / PASTE / CLEAR work on the pattern you're viewing. SONG mode plays a chain of up to 64 patterns, one bar each, and loops. Click a chain entry to jump there on the next bar, or to set the start point while stopped. In song mode you can still open any pattern to edit it while the song plays; the grid follows playback whenever the song moves to a different pattern.
-- **Sampler**: per pad LEVEL / PITCH (±24 st) / PAN / DECAY, choke group (hats are pre-choked), load any audio file, or record from the mic straight onto a pad (auto-trimmed and normalized).
-- **Looper**: bar-synced stereo looper, 1/2/4/8 bars, source = mic or the drum bus (resampling), overdub, exact undo of the last overdub, input monitoring.
-- Pattern, tempo and pad settings persist in `localStorage`.
+The UI is laid out like a Launchpad Pro: an 8×8 pad grid with round function buttons on all four sides.
 
-Keys: `Q W E R / A S D F` pads · `Space` play · `1`–`8` pattern · `M` song · `X` rec · `L` loop rec/dub/play · `K` loop stop · `U` undo.
+- **Grid**: rows 1–2 are the 16 steps of the selected track (Shift-click for an accent, drag to paint). Row 3 sets the velocity for new steps, row 4 is the song chain (8 entries per page), and the bottom half holds the 8 drum pads.
+- **Round buttons**: top row is PLAY, REC (records pad hits into the pattern, quantized), SONG, COPY, CLR, chain page ◀ ▶ and LOOP. The left column selects a track, the right column mutes it, and the bottom row picks patterns A–H.
+- **COPY / CLR** work like Launchpad's Duplicate and Delete: arm the button, then tap the target. COPY + pattern copies the pattern you're viewing into it. CLR + pattern, chain entry or track button clears that pattern, removes that chain entry, or clears that track's steps.
+- **Patterns & song**: while playing, picking a pattern queues it for the next bar line. SONG mode plays the chain (up to 64 one-bar entries) and loops. Tap a chain entry to jump there on the next bar, or tap **+** to add the pattern you're editing.
+- **Track editor** (right panel): LEVEL / PITCH (±24 st) / PAN / DECAY, choke group (hats are pre-choked), load an audio file, or record from the mic onto the track (auto-trimmed and normalized).
+- **Looper** (left panel): bar-synced stereo looper, 1/2/4/8 bars, source = mic or the drum bus (resampling), overdub, exact undo of the last overdub, input monitoring.
+- Patterns, chain, tempo and track settings persist in `localStorage`.
+
+Keys: `Q W E R / A S D F` pads · `↑ ↓` track · `Space` play · `1`–`8` pattern · `M` song · `[ ]` chain page · `X` rec · `L` loop · `K` loop stop · `U` undo · `Esc` disarm COPY/CLR.
+
+`mockups/launchpad-concepts.html` holds the three layouts that were considered (this is concept C).
 
 ## Architecture
 

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Pulse</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -17,106 +17,99 @@
   <div class="app" id="app" hidden>
     <header class="bar">
       <div class="brand"><span class="brand-dot" id="brandDot"></span>PULSE</div>
-      <div class="transport">
-        <button class="btn btn-play" id="play" title="Play / Stop (Space)">
-          <svg viewBox="0 0 24 24"><path class="i-play" d="M8 5v14l11-7z"/><path class="i-stop" d="M6 6h12v12H6z"/></svg>
-        </button>
-        <button class="btn btn-rec" id="rec" title="Record pads into the pattern (X)">REC</button>
+      <div class="lcd" id="lcd">
+        <span><i>BPM</i><b id="lcdBpm">120</b></span>
+        <span><i>PAT</i><b id="lcdPat">A</b></span>
+        <span><i>TRK</i><b id="lcdTrk">KICK</b></span>
+        <span><i>VEL</i><b id="lcdVel">100</b></span>
+        <span><i>STEP</i><b id="lcdStep">--</b></span>
+        <span><i>LOOP</i><b id="lcdLoop">EMPTY</b></span>
       </div>
-      <div class="knob-row" id="globalKnobs"></div>
       <div class="meter" id="meter" title="Output level"></div>
     </header>
 
-    <section class="panel patbar">
-      <div class="pb-group">
-        <div class="lbl">PATTERN</div>
-        <div class="pats" id="pats"></div>
-      </div>
-      <div class="pb-group">
-        <div class="lbl">EDIT</div>
-        <div class="pb-btns">
-          <button class="btn" id="patCopy" title="Copy this pattern">COPY</button>
-          <button class="btn" id="patPaste" title="Paste over this pattern" disabled>PASTE</button>
-          <button class="btn" id="patClear" title="Clear this pattern (press twice)">CLEAR</button>
-        </div>
-      </div>
-      <div class="pb-group pb-song">
-        <div class="lbl">SONG <span class="song-info" id="songInfo"></span></div>
-        <div class="song-row">
-          <button class="btn" id="songMode" title="Play the chain instead of a single pattern (M)">SONG</button>
-          <div class="chain" id="chain"></div>
-          <button class="btn" id="chainAdd" title="Append the pattern you're editing to the chain">+</button>
-          <button class="btn" id="chainDel" title="Remove the last chain entry">&minus;</button>
-        </div>
-      </div>
-    </section>
+    <main class="rig">
+      <aside class="col col-left">
+        <section class="panel">
+          <h2 class="ph">TEMPO</h2>
+          <div class="knob-row spread" id="globalKnobs"></div>
+        </section>
 
-    <main class="deck">
-      <section class="panel pads-panel">
-        <div class="pads" id="pads"></div>
-      </section>
+        <section class="panel looper" id="looper">
+          <h2 class="ph">LOOPER</h2>
+          <div class="loop-top">
+            <button class="loop-btn" id="loopBtn" title="Record / Overdub / Play (L)">
+              <svg viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="44"/><circle class="ring" id="loopRing" cx="50" cy="50" r="44"/></svg>
+              <span id="loopLabel">REC</span>
+            </button>
+            <div class="loop-info">
+              <div class="loop-state" id="loopState">EMPTY</div>
+              <div class="loop-leds" id="loopLeds"></div>
+            </div>
+          </div>
+          <div class="loop-group">
+            <div class="lbl">BARS</div>
+            <div class="seg" id="loopBars"></div>
+          </div>
+          <div class="loop-group">
+            <div class="lbl">SOURCE</div>
+            <div class="seg" id="loopSrc"></div>
+          </div>
+          <div class="loop-btns">
+            <button class="btn" id="loopStop" title="Stop loop (K)">STOP</button>
+            <button class="btn" id="loopUndo" title="Undo last overdub (U)">UNDO</button>
+            <button class="btn" id="loopClear" title="Clear loop">CLEAR</button>
+            <button class="btn" id="monitor" title="Hear the audio input">MON</button>
+          </div>
+          <div class="knob-row" id="loopKnobs"></div>
+        </section>
+      </aside>
 
-      <section class="panel seq-panel">
-        <div class="seq" id="seq"></div>
-      </section>
+      <section class="device" id="device" aria-label="Pad grid"></section>
 
-      <section class="panel edit-panel" id="edit">
-        <div class="edit-head">
-          <span class="edit-dot" id="editDot"></span>
-          <span class="edit-name" id="editName">KICK</span>
-          <span class="edit-src" id="editSrc">synth</span>
-        </div>
-        <canvas class="wave" id="wave"></canvas>
-        <div class="knob-row" id="padKnobs"></div>
-        <div class="edit-btns">
-          <button class="btn" id="load" title="Load an audio file onto this pad">LOAD</button>
-          <button class="btn btn-sample" id="sample" title="Record from the audio input onto this pad">SAMPLE</button>
-          <button class="btn" id="reset" title="Restore the built-in sound">RESET</button>
-          <button class="btn" id="choke" title="Choke group: pads in the group cut each other off">CHOKE</button>
-        </div>
-        <input type="file" id="file" accept="audio/*" hidden>
-      </section>
+      <aside class="col col-right">
+        <section class="panel edit-panel" id="edit">
+          <div class="edit-head">
+            <span class="edit-dot"></span>
+            <span class="edit-name" id="editName">KICK</span>
+            <span class="edit-src" id="editSrc">synth</span>
+          </div>
+          <canvas class="wave" id="wave"></canvas>
+          <div class="knob-row spread" id="padKnobs"></div>
+          <div class="edit-btns">
+            <button class="btn" id="load" title="Load an audio file onto this track">LOAD</button>
+            <button class="btn btn-sample" id="sample" title="Record from the audio input onto this track">SAMPLE</button>
+            <button class="btn" id="reset" title="Restore the built-in sound">RESET</button>
+            <button class="btn" id="choke" title="Choke group: tracks in the group cut each other off">CHOKE</button>
+          </div>
+          <input type="file" id="file" accept="audio/*" hidden>
+        </section>
+
+        <section class="panel guide">
+          <h2 class="ph">GRID</h2>
+          <dl>
+            <dt>Rows 1–2</dt><dd>16 steps of the selected track. Shift-click for an accent.</dd>
+            <dt>Row 3</dt><dd>Velocity for new steps.</dd>
+            <dt>Row 4</dt><dd>Song chain. Tap <b>+</b> to add the pattern you're editing, tap an entry to jump to it.</dd>
+            <dt>Pads</dt><dd>Play and select tracks.</dd>
+            <dt>COPY</dt><dd>Arm, then tap a pattern to copy this one into it.</dd>
+            <dt>CLR</dt><dd>Arm, then tap a pattern, a chain entry or a track button to clear it.</dd>
+          </dl>
+        </section>
+      </aside>
     </main>
-
-    <section class="panel looper" id="looper">
-      <button class="loop-btn" id="loopBtn" title="Record / Overdub / Play (L)">
-        <svg viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="44"/><circle class="ring" id="loopRing" cx="50" cy="50" r="44"/></svg>
-        <span id="loopLabel">REC</span>
-      </button>
-      <div class="loop-info">
-        <div class="loop-state" id="loopState">LOOPER · EMPTY</div>
-        <div class="loop-leds" id="loopLeds"></div>
-      </div>
-      <div class="loop-group">
-        <div class="lbl">BARS</div>
-        <div class="seg" id="loopBars"></div>
-      </div>
-      <div class="loop-group">
-        <div class="lbl">SOURCE</div>
-        <div class="seg" id="loopSrc"></div>
-      </div>
-      <div class="loop-group">
-        <div class="lbl">&nbsp;</div>
-        <div class="loop-btns">
-          <button class="btn" id="loopStop" title="Stop loop (K)">STOP</button>
-          <button class="btn" id="loopUndo" title="Undo last overdub (U)">UNDO</button>
-          <button class="btn" id="loopClear" title="Clear loop">CLEAR</button>
-          <button class="btn" id="monitor" title="Hear the audio input">MON</button>
-        </div>
-      </div>
-      <div class="knob-row" id="loopKnobs"></div>
-    </section>
 
     <footer class="keys">
       <span><b>Q W E R / A S D F</b> pads</span>
+      <span><b>↑ ↓</b> track</span>
       <span><b>Space</b> play</span>
       <span><b>1–8</b> pattern</span>
       <span><b>M</b> song</span>
+      <span><b>[ ]</b> chain page</span>
       <span><b>X</b> rec</span>
       <span><b>L</b> loop</span>
       <span><b>K</b> loop stop</span>
       <span><b>U</b> undo</span>
-      <span><b>Shift</b>+click step: accent</span>
     </footer>
   </div>
 

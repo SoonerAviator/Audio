@@ -8,6 +8,9 @@ const PATTERNS = 8;
 const PAT_SIZE = N * STEPS;
 const MAX_CHAIN = 64;
 const PAT_NAMES = 'ABCDEFGH';
+const PAT_COLORS = ['#3dffa8', '#22d3ff', '#6b7bff', '#b46bff', '#ff5ad8', '#ff3b5c', '#ff8a1f', '#ffd23f'];
+const VEL_LEVELS = [20, 36, 52, 68, 84, 100, 116, 127];
+const WHITE = '#f4f6fa', RED = '#ff3b5c', AMBER = '#ffb020', GREEN = '#3dffa8';
 const KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f'];
 const STORE = 'pulse.v1';
 const MAX_FILE_SEC = 30;
@@ -18,7 +21,8 @@ const state = loadState();
 const samples = new Array(N);
 const srcNames = new Array(N).fill('synth');
 
-let sel = 0;
+let sel = state.track;   // selected track: shown in step rows, editor, pads
+let view = state.view;   // pattern shown (and edited)
 let playing = false;
 let recArm = false;
 let sampling = -1;
@@ -26,16 +30,17 @@ let loop = { s: LOOP.EMPTY, bars: state.loopBars, len: 0, undo: false };
 let loopPos = 0, loopBar = 0;
 let meterL = 0, meterR = 0;
 let curStep = -1;
-let view = 0;          // pattern shown in the grid (and edited)
-let playPat = -1;      // pattern the engine is playing, from ticks
-let queued = -1;       // pattern waiting for the bar line
-let chainAt = 0;       // current chain entry (or start entry while stopped)
-let jumpTo = -1;       // chain entry waiting for the bar line
-let clipboard = null;
-let clearArmed = 0;
+let playPat = -1;        // pattern the engine is playing, from ticks
+let queued = -1;         // pattern waiting for the bar line
+let chainAt = 0;         // current chain entry (or start entry while stopped)
+let jumpTo = -1;         // chain entry waiting for the bar line
+let chainPage = 0;
+let armed = null;        // 'copy' | 'clr' | null
+let armTimer = 0;
 
-const ui = { pads: [], glows: [], rows: [], steps: [], phLeds: [], meter: [[], []], loopLeds: [], pats: [], chips: [] };
-let knobs = {};
+const dev = { top: [], left: [], right: [], bottom: [], steps: [], vel: [], chain: [], pads: [], logo: null };
+const ui = { meter: [[], []], loopLeds: [] };
+const knobs = {};
 
 // ------------------------------------------------------------------ state
 
@@ -45,19 +50,19 @@ function defaultState() {
   // A: main groove
   put(0, 0, [0, 8, 10]); put(0, 0, [0], 127);
   put(0, 1, [4, 12]);
-  put(0, 2, [12], 80);
-  put(0, 3, [0, 2, 4, 6, 8, 10, 12]); put(0, 3, [2, 6, 10], 70);
+  put(0, 2, [12], 84);
+  put(0, 3, [0, 2, 4, 6, 8, 10, 12]); put(0, 3, [2, 6, 10], 68);
   put(0, 4, [14]);
-  put(0, 7, [7, 15], 70);
+  put(0, 7, [7, 15], 68);
   // B: fill
   put(1, 0, [0, 8]); put(1, 0, [0], 127);
   put(1, 1, [4, 10, 13, 14]); put(1, 1, [12, 15], 127);
   put(1, 3, [0, 2, 4, 6, 8]);
   put(1, 4, [10]);
-  put(1, 5, [11, 13, 15], 90);
+  put(1, 5, [11, 13, 15], 84);
   return {
     bpm: 120, swing: 0, master: 0.8, loopGain: 1, loopBars: 2, loopSrc: 1,
-    patterns, view: 0, chain: [0, 0, 0, 1], song: false,
+    patterns, view: 0, chain: [0, 0, 0, 1], song: false, track: 0, vel: 100,
     pads: TRACKS.map((t) => ({ gain: 0.8, pitch: 0, pan: 0, decay: 1, choke: t.choke || 0, mute: false })),
   };
 }
@@ -78,6 +83,8 @@ function loadState() {
       const st = { ...d, ...s };
       st.chain = (Array.isArray(st.chain) ? st.chain : []).filter((p) => p >= 0 && p < PATTERNS).slice(0, MAX_CHAIN);
       st.view = st.view >= 0 && st.view < PATTERNS ? st.view : 0;
+      st.track = st.track >= 0 && st.track < N ? st.track : 0;
+      if (!VEL_LEVELS.includes(st.vel)) st.vel = 100;
       return st;
     }
   } catch { /* storage unavailable */ }
@@ -104,96 +111,287 @@ function setSample(i, data, name) {
   samples[i] = data;
   srcNames[i] = name;
   engine.send({ t: 'sample', i, data });
-  if (i === sel) renderEditor();
+  if (i === sel && knobs.gain) renderEditor();
 }
 
-// ------------------------------------------------------------------ pads
+const songActive = () => state.song && state.chain.length > 0;
+const hasNotes = (p) => state.patterns[p].some((v) => v > 0);
 
-function buildPads() {
-  const host = $('pads');
-  TRACKS.forEach((t, i) => {
-    const el = document.createElement('button');
-    el.className = 'pad';
-    el.style.setProperty('--c', t.color);
-    el.innerHTML = `<div class="p-glow"></div><span class="p-name">${t.name}</span><span class="p-bar"></span><span class="p-key">${KEYS[i].toUpperCase()}</span>`;
-    el.addEventListener('pointerdown', (e) => { e.preventDefault(); hitPad(i, e.shiftKey ? 127 : 110); });
-    host.appendChild(el);
-    ui.pads.push(el);
-    ui.glows.push(el.firstChild);
+// ------------------------------------------------------------------ light helpers
+
+function light(e, color, mode, ph = false) {
+  e.style.setProperty('--c', color);
+  e.classList.toggle('dim', mode === 'dim');
+  e.classList.toggle('mid', mode === 'mid');
+  e.classList.toggle('on', mode === 'on');
+  e.classList.toggle('acc', mode === 'acc');
+  e.classList.toggle('blink', mode === 'blink');
+  if (e.classList.contains('pd')) e.classList.toggle('ph', ph);
+}
+
+function label(e, text) {
+  let lb = e.querySelector('.lb');
+  if (!text) { if (lb) lb.remove(); return; }
+  if (!lb) { lb = document.createElement('span'); lb.className = 'lb'; e.appendChild(lb); }
+  lb.textContent = text;
+}
+
+const velMode = (v) => (v >= 120 ? 'acc' : v >= 72 ? 'on' : 'mid');
+
+function flashEl(e, amt = 1) {
+  e.animate([{ filter: `brightness(${1 + 1.3 * amt})` }, { filter: 'brightness(1)' }], { duration: 220, easing: 'cubic-bezier(.2,.7,.3,1)' });
+}
+
+function flashTrack(t, amt = 1) {
+  flashEl(dev.pads[t], amt);
+  flashEl(dev.left[t], amt);
+}
+
+// ------------------------------------------------------------------ device
+
+// Top-row round buttons, left to right.
+const TOP = [
+  { key: 'play', title: 'Play / Stop (Space)', fn: () => togglePlay() },
+  { key: 'rec', title: 'Record pads into the pattern (X)', fn: () => toggleRec() },
+  { key: 'song', title: 'Song mode (M)', fn: () => toggleSong() },
+  { key: 'copy', title: 'Copy: arm, then tap a pattern to copy this one into it', fn: () => arm('copy') },
+  { key: 'clr', title: 'Clear: arm, then tap a pattern, chain entry or track button', fn: () => arm('clr') },
+  { key: 'prev', title: 'Previous chain page ([)', fn: () => pageChain(-1) },
+  { key: 'next', title: 'Next chain page (])', fn: () => pageChain(1) },
+  { key: 'loop', title: 'Looper record / overdub / play (L)', fn: () => loopPress() },
+];
+
+function buildDevice() {
+  const g = document.createElement('div');
+  g.className = 'lp';
+  $('device').appendChild(g);
+  const at = (tag, cls, r, c, rs = 1, cs = 1) => {
+    const e = document.createElement(tag);
+    e.className = cls;
+    e.style.gridRow = `${r + 1} / span ${rs}`;
+    e.style.gridColumn = `${c + 1} / span ${cs}`;
+    return g.appendChild(e);
+  };
+  const tap = (e, fn) => e.addEventListener('pointerdown', (ev) => { ev.preventDefault(); fn(ev); });
+
+  TOP.forEach((t, c) => {
+    dev.top[c] = at('button', 'rb', 0, c + 1);
+    dev.top[c].title = t.title;
+    tap(dev.top[c], t.fn);
   });
+  dev.logo = at('div', 'logo', 0, 9);
+
+  for (let r = 0; r < 8; r++) {
+    dev.left[r] = at('button', 'rb', r + 1, 0);
+    dev.left[r].title = `Select ${TRACKS[r].name} (with CLR armed: clear its steps)`;
+    tap(dev.left[r], () => pressTrack(r));
+    dev.right[r] = at('button', 'rb', r + 1, 9);
+    dev.right[r].title = `Mute ${TRACKS[r].name}`;
+    tap(dev.right[r], () => toggleMute(r));
+  }
+
+  // Rows 1–2: steps of the selected track (drag paints).
+  let paint = null;
+  window.addEventListener('pointerup', () => (paint = null));
+  for (let s = 0; s < STEPS; s++) {
+    const e = at('button', 'pd', 1 + (s >> 3), 1 + (s & 7));
+    e.title = `Step ${s + 1}`;
+    e.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      if (e.hasPointerCapture(ev.pointerId)) e.releasePointerCapture(ev.pointerId); // let drags reach other steps
+      const v = state.patterns[view][sel * STEPS + s] ? 0 : ev.shiftKey ? 127 : state.vel;
+      paint = { v };
+      setStep(sel, s, v);
+    });
+    e.addEventListener('pointerenter', (ev) => { if (paint && ev.buttons) setStep(sel, s, paint.v); });
+    dev.steps.push(e);
+  }
+
+  // Row 3: velocity for new steps.
+  VEL_LEVELS.forEach((v, c) => {
+    const e = at('button', 'pd', 3, 1 + c);
+    e.title = `Velocity ${v}`;
+    tap(e, () => { state.vel = v; renderVel(); renderLcd(); save(); });
+    dev.vel.push(e);
+  });
+
+  // Row 4: song chain, 8 entries per page.
+  for (let c = 0; c < 8; c++) {
+    const e = at('button', 'pd', 4, 1 + c);
+    tap(e, () => pressChain(chainPage * 8 + c));
+    dev.chain.push(e);
+  }
+
+  // Rows 5–8: drum pads, 2×2 cells each. Invisible sizers keep those rows square.
+  for (let r = 5; r < 9; r++) at('div', 'sizer', r, 1);
+  TRACKS.forEach((t, i) => {
+    const e = at('button', 'pd pad', 5 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
+    e.innerHTML = `<span class="lb">${t.name}</span><span class="key">${KEYS[i].toUpperCase()}</span>`;
+    e.title = `${t.name} (${KEYS[i].toUpperCase()})`;
+    tap(e, (ev) => hitPad(i, ev.shiftKey ? 127 : 110));
+    dev.pads.push(e);
+  });
+
+  for (let p = 0; p < PATTERNS; p++) {
+    dev.bottom[p] = at('button', 'rb', 9, p + 1);
+    dev.bottom[p].title = `Pattern ${PAT_NAMES[p]} (${p + 1})`;
+    tap(dev.bottom[p], () => pressPattern(p));
+  }
+}
+
+function renderDevice() {
+  renderTop();
+  renderSide();
+  renderBottom();
+  renderSteps();
+  renderVel();
+  renderChain();
+  renderPads();
+}
+
+function renderTop() {
+  const loopColor = { [LOOP.EMPTY]: RED, [LOOP.ARMED]: RED, [LOOP.REC]: RED, [LOOP.PLAY]: GREEN, [LOOP.DUB]: AMBER, [LOOP.STOP]: GREEN }[loop.s];
+  const loopMode = loop.s === LOOP.ARMED ? 'blink' : loop.s === LOOP.EMPTY || loop.s === LOOP.STOP ? 'dim' : 'on';
+  const maxPage = maxChainPage();
+  const spec = {
+    play: [playing ? 'STOP' : 'PLAY', GREEN, playing ? 'on' : 'dim'],
+    rec: ['REC', RED, recArm ? 'on' : 'dim'],
+    song: ['SONG', AMBER, state.song ? 'on' : 'dim'],
+    copy: ['COPY', WHITE, armed === 'copy' ? 'blink' : 'dim'],
+    clr: ['CLR', RED, armed === 'clr' ? 'blink' : 'dim'],
+    prev: ['◀', WHITE, chainPage > 0 ? 'dim' : ''],
+    next: ['▶', WHITE, chainPage < maxPage ? 'dim' : ''],
+    loop: ['LOOP', loopColor, loopMode],
+  };
+  TOP.forEach((t, c) => {
+    const [text, color, mode] = spec[t.key];
+    dev.top[c].textContent = text;
+    light(dev.top[c], color, mode);
+  });
+}
+
+function renderSide() {
+  for (let t = 0; t < N; t++) {
+    light(dev.left[t], TRACKS[t].color, t === sel ? 'on' : 'dim');
+    dev.right[t].textContent = 'M';
+    light(dev.right[t], AMBER, state.pads[t].mute ? 'on' : '');
+  }
+}
+
+function renderBottom() {
+  for (let p = 0; p < PATTERNS; p++) {
+    const b = dev.bottom[p];
+    b.textContent = PAT_NAMES[p];
+    light(b, PAT_COLORS[p], p === queued ? 'blink' : p === view ? 'on' : hasNotes(p) ? 'dim' : '');
+  }
+}
+
+function renderSteps() {
+  const pat = state.patterns[view], color = TRACKS[sel].color, muted = state.pads[sel].mute;
+  for (let s = 0; s < STEPS; s++) {
+    const v = pat[sel * STEPS + s];
+    const e = dev.steps[s];
+    light(e, color, v ? (muted ? 'dim' : velMode(v)) : 'dim', s === curStep);
+    e.classList.toggle('alt', !v && ((s >> 2) & 1) === 1);
+  }
+}
+
+function renderVel() {
+  VEL_LEVELS.forEach((v, c) => light(dev.vel[c], WHITE, v === state.vel ? 'on' : v < state.vel ? 'mid' : 'dim'));
+}
+
+function renderChain() {
+  const len = state.chain.length;
+  for (let c = 0; c < 8; c++) {
+    const k = chainPage * 8 + c, e = dev.chain[c];
+    if (k < len) {
+      const p = state.chain[k];
+      const cur = k === chainAt;
+      light(e, PAT_COLORS[p], k === jumpTo ? 'blink' : cur && state.song ? 'acc' : cur ? 'on' : 'mid', cur && playing && songActive());
+      label(e, PAT_NAMES[p]);
+      e.title = `Bar ${k + 1}: pattern ${PAT_NAMES[p]}`;
+    } else if (k === len && len < MAX_CHAIN) {
+      light(e, AMBER, 'dim');
+      label(e, '+');
+      e.title = `Add pattern ${PAT_NAMES[view]} to the chain`;
+    } else {
+      light(e, WHITE, '');
+      label(e, '');
+      e.title = '';
+    }
+  }
+}
+
+function renderPads() {
+  TRACKS.forEach((t, i) => light(dev.pads[i], t.color, i === sel ? 'on' : state.pads[i].mute ? 'dim' : 'mid'));
+}
+
+function setPlayhead(s) {
+  const prev = curStep;
+  curStep = s;
+  if (prev >= 0) dev.steps[prev].classList.remove('ph');
+  if (s >= 0) dev.steps[s].classList.add('ph');
+}
+
+function renderLcd() {
+  $('lcdBpm').textContent = state.bpm;
+  $('lcdPat').textContent = PAT_NAMES[view] + (songActive() ? ` · SONG ${chainAt + 1}/${state.chain.length}` : '');
+  $('lcdTrk').textContent = TRACKS[sel].name + (state.pads[sel].mute ? ' (M)' : '');
+  $('lcdVel').textContent = state.vel;
+  $('lcdStep').textContent = curStep < 0 ? '--' : String(curStep + 1).padStart(2, '0');
+  $('lcdLoop').textContent = LOOP_TEXT[loop.s][1].split(' ·')[0];
+}
+
+// ------------------------------------------------------------------ actions
+
+function arm(mode) {
+  clearTimeout(armTimer);
+  armed = armed === mode ? null : mode;
+  if (armed) armTimer = setTimeout(() => { armed = null; renderTop(); }, 5000);
+  renderTop();
+}
+
+function disarm() {
+  clearTimeout(armTimer);
+  armed = null;
+  renderTop();
 }
 
 function hitPad(i, vel) {
   engine.send({ t: 'trig', i, v: vel, rec: recArm });
-  flash(i, vel / 127);
+  flashTrack(i, vel / 127);
   if (i !== sel) select(i);
 }
 
-function flash(i, amt = 1) {
-  ui.glows[i].animate([{ opacity: 0.85 * amt }, { opacity: 0 }], { duration: 240, easing: 'cubic-bezier(.2,.7,.3,1)' });
+function pressTrack(t) {
+  if (armed === 'clr') {
+    const pat = state.patterns[view].slice();
+    pat.fill(0, t * STEPS, (t + 1) * STEPS);
+    writePattern(view, pat);
+    disarm();
+    return;
+  }
+  select(t);
 }
 
-// ------------------------------------------------------------------ sequencer
-
-function buildSeq() {
-  const host = $('seq');
-
-  const ph = document.createElement('div');
-  ph.className = 'seq-row ph-row';
-  ph.innerHTML = '<div class="seq-head"></div><div class="steps"></div>';
-  const phGroups = groups(ph.lastChild);
-  for (let s = 0; s < STEPS; s++) ui.phLeds.push(phGroups[s >> 2].appendChild(document.createElement('span')));
-  host.appendChild(ph);
-
-  let paint = null;
-  window.addEventListener('pointerup', () => (paint = null));
-
-  TRACKS.forEach((t, i) => {
-    const row = document.createElement('div');
-    row.className = 'seq-row';
-    row.style.setProperty('--c', t.color);
-    row.innerHTML = `<div class="seq-head"><button class="seq-name">${t.name}</button><button class="btn seq-mute" title="Mute">M</button></div><div class="steps"></div>`;
-    row.querySelector('.seq-name').addEventListener('click', () => select(i));
-    const mute = row.querySelector('.seq-mute');
-    mute.addEventListener('click', () => {
-      state.pads[i].mute = !state.pads[i].mute;
-      renderMute(i);
-      sendPad(i);
-      save();
-    });
-    const grps = groups(row.querySelector('.steps'));
-    const cells = [];
-    for (let s = 0; s < STEPS; s++) {
-      const c = document.createElement('button');
-      c.className = 'stp';
-      c.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        c.releasePointerCapture(e.pointerId);
-        const v = state.patterns[view][i * STEPS + s] ? 0 : e.shiftKey ? 127 : 100;
-        paint = { i, v };
-        setStep(i, s, v);
-      });
-      c.addEventListener('pointerenter', (e) => {
-        if (paint && paint.i === i && e.buttons) setStep(i, s, paint.v);
-      });
-      grps[s >> 2].appendChild(c);
-      cells.push(c);
-    }
-    host.appendChild(row);
-    ui.rows.push(row);
-    ui.steps.push(cells);
-    renderMute(i);
-    for (let s = 0; s < STEPS; s++) renderStep(i, s);
-  });
+function select(t) {
+  sel = t;
+  state.track = t;
+  renderSide();
+  renderSteps();
+  renderPads();
+  renderEditor();
+  renderLcd();
+  save();
 }
 
-// Steps are laid out in four groups of four (one beat each).
-function groups(host) {
-  return Array.from({ length: STEPS / 4 }, () => {
-    const g = document.createElement('div');
-    g.className = 'grp';
-    return host.appendChild(g);
-  });
+function toggleMute(t) {
+  state.pads[t].mute = !state.pads[t].mute;
+  sendPad(t);
+  renderSide();
+  renderPads();
+  if (t === sel) { renderSteps(); renderLcd(); }
+  save();
 }
 
 function setStep(i, s, v) {
@@ -201,106 +399,32 @@ function setStep(i, s, v) {
   if (pat[i * STEPS + s] === v) return;
   pat[i * STEPS + s] = v;
   engine.send({ t: 'step', p: view, i, s, v });
-  renderStep(i, s);
-  renderPatterns();
+  if (i === sel) renderSteps();
+  renderBottom();
   save();
-}
-
-function renderSteps() {
-  for (let i = 0; i < N; i++) for (let s = 0; s < STEPS; s++) renderStep(i, s);
-}
-
-function renderStep(i, s) {
-  const v = state.patterns[view][i * STEPS + s];
-  const c = ui.steps[i][s];
-  c.classList.toggle('on', v > 0 && v < 120);
-  c.classList.toggle('acc', v >= 120);
-}
-
-function renderMute(i) {
-  const m = state.pads[i].mute;
-  ui.rows[i].classList.toggle('muted', m);
-  ui.rows[i].querySelector('.seq-mute').classList.toggle('lit', m);
-}
-
-function setPlayhead(s) {
-  if (curStep >= 0) {
-    ui.phLeds[curStep].classList.remove('on');
-    for (let i = 0; i < N; i++) ui.steps[i][curStep].classList.remove('ph');
-  }
-  curStep = s;
-  if (s < 0) return;
-  ui.phLeds[s].classList.add('on');
-  for (let i = 0; i < N; i++) ui.steps[i][s].classList.add('ph');
-}
-
-// ------------------------------------------------------------------ patterns / song
-
-function buildPatterns() {
-  const host = $('pats');
-  for (let p = 0; p < PATTERNS; p++) {
-    const b = document.createElement('button');
-    b.className = 'btn pat';
-    b.textContent = PAT_NAMES[p];
-    b.title = `Pattern ${PAT_NAMES[p]} (${p + 1})`;
-    b.addEventListener('click', () => pickPattern(p));
-    host.appendChild(b);
-    ui.pats.push(b);
-  }
-
-  $('patCopy').addEventListener('click', () => {
-    clipboard = state.patterns[view].slice();
-    $('patPaste').disabled = false;
-  });
-  $('patPaste').addEventListener('click', () => clipboard && writePattern(view, clipboard.slice()));
-  $('patClear').addEventListener('click', () => {
-    const btn = $('patClear');
-    if (!clearArmed) {
-      btn.textContent = 'SURE?';
-      btn.classList.add('lit');
-      btn.style.setProperty('--c', 'var(--red)');
-      clearArmed = setTimeout(disarmClear, 2000);
-      return;
-    }
-    disarmClear();
-    writePattern(view, new Array(PAT_SIZE).fill(0));
-  });
-
-  $('songMode').addEventListener('click', toggleSong);
-  $('chainAdd').addEventListener('click', () => {
-    if (state.chain.length >= MAX_CHAIN) return;
-    state.chain.push(view);
-    sendChain();
-    const c = $('chain');
-    c.scrollLeft = c.scrollWidth;
-  });
-  $('chainDel').addEventListener('click', () => {
-    if (!state.chain.length) return;
-    state.chain.pop();
-    if (chainAt >= state.chain.length) chainAt = 0;
-    if (jumpTo >= state.chain.length) jumpTo = -1;
-    sendChain();
-  });
-}
-
-function disarmClear() {
-  clearTimeout(clearArmed);
-  clearArmed = 0;
-  const btn = $('patClear');
-  btn.textContent = 'CLEAR';
-  btn.classList.remove('lit');
 }
 
 function writePattern(p, data) {
   state.patterns[p] = data;
   engine.send({ t: 'pattern', p, data: Uint8Array.from(data) });
   if (p === view) renderSteps();
-  renderPatterns();
+  renderBottom();
   save();
 }
 
-function songActive() {
-  return state.song && state.chain.length > 0;
+function pressPattern(p) {
+  if (armed === 'copy') {
+    if (p !== view) writePattern(p, state.patterns[view].slice());
+    disarm();
+    pickPattern(p);
+    return;
+  }
+  if (armed === 'clr') {
+    writePattern(p, new Array(PAT_SIZE).fill(0));
+    disarm();
+    return;
+  }
+  pickPattern(p);
 }
 
 function pickPattern(p) {
@@ -311,14 +435,16 @@ function pickPattern(p) {
   }
   engine.send({ t: 'patSel', p });
   if (!playing) setView(p);
-  else { queued = p === playPat ? -1 : p; renderPatterns(); }
+  else { queued = p === playPat ? -1 : p; renderBottom(); }
 }
 
 function setView(p) {
   view = p;
   state.view = p;
   renderSteps();
-  renderPatterns();
+  renderBottom();
+  renderChain();
+  renderLcd();
   save();
 }
 
@@ -327,58 +453,55 @@ function toggleSong() {
   engine.send({ t: 'song', v: state.song });
   if (state.song && playing) jumpTo = 0;
   queued = -1;
-  renderPatterns();
+  renderTop();
+  renderBottom();
   renderChain();
+  renderLcd();
   save();
+}
+
+function maxChainPage() {
+  return Math.floor(Math.min(state.chain.length, MAX_CHAIN - 1) / 8);
+}
+
+function pageChain(d) {
+  chainPage = Math.max(0, Math.min(maxChainPage(), chainPage + d));
+  renderTop();
+  renderChain();
 }
 
 function sendChain() {
   engine.send({ t: 'chain', data: Uint8Array.from(state.chain) });
+  chainPage = Math.min(chainPage, maxChainPage());
+  renderTop();
   renderChain();
+  renderLcd();
   save();
 }
 
-function renderPatterns() {
-  for (let p = 0; p < PATTERNS; p++) {
-    const b = ui.pats[p];
-    b.classList.toggle('lit', p === view);
-    b.classList.toggle('play', playing && p === playPat);
-    b.classList.toggle('blink', p === queued);
-    b.classList.toggle('full', state.patterns[p].some((v) => v > 0));
+function pressChain(k) {
+  const len = state.chain.length;
+  if (armed === 'clr') {
+    if (k < len) {
+      state.chain.splice(k, 1);
+      if (chainAt >= state.chain.length) chainAt = 0;
+      jumpTo = -1;
+      sendChain();
+    }
+    disarm();
+    return;
   }
-}
-
-function renderChain() {
-  const host = $('chain');
-  if (ui.chips.length !== state.chain.length) {
-    host.innerHTML = '';
-    ui.chips = state.chain.map((_, k) => {
-      const c = document.createElement('button');
-      c.className = 'btn chip';
-      c.addEventListener('click', () => jumpChain(k));
-      return host.appendChild(c);
-    });
+  if (k < len) {
+    engine.send({ t: 'jump', i: k });
+    if (playing && songActive()) jumpTo = k; else chainAt = k;
+    renderChain();
+    renderLcd();
+  } else if (k === len && len < MAX_CHAIN) {
+    state.chain.push(view);
+    // When this page fills up, follow the "+" slot onto the next page.
+    if ((len + 1) % 8 === 0) chainPage = maxChainPage();
+    sendChain();
   }
-  state.chain.forEach((p, k) => {
-    const c = ui.chips[k];
-    c.textContent = PAT_NAMES[p];
-    c.title = `Bar ${k + 1}: pattern ${PAT_NAMES[p]}`;
-    c.classList.toggle('lit', k === chainAt);
-    c.classList.toggle('blink', k === jumpTo);
-  });
-  host.classList.toggle('off', !state.song);
-  $('songMode').classList.toggle('lit', state.song);
-  const n = state.chain.length;
-  $('songInfo').textContent = n ? `${n} BAR${n > 1 ? 'S' : ''}` : '';
-  $('chainAdd').disabled = n >= MAX_CHAIN;
-  $('chainDel').disabled = n === 0;
-}
-
-function jumpChain(k) {
-  engine.send({ t: 'jump', i: k });
-  if (playing && songActive()) jumpTo = k;
-  else chainAt = k;
-  renderChain();
 }
 
 // ------------------------------------------------------------------ editor
@@ -472,15 +595,6 @@ function trimSilence(x) {
   return out;
 }
 
-function select(i) {
-  ui.pads[sel].classList.remove('sel');
-  ui.rows[sel].classList.remove('sel');
-  sel = i;
-  ui.pads[i].classList.add('sel');
-  ui.rows[i].classList.add('sel');
-  renderEditor();
-}
-
 function renderEditor() {
   const t = TRACKS[sel], p = state.pads[sel];
   const ed = $('edit');
@@ -521,13 +635,13 @@ function drawWave() {
   }
 }
 
-// ------------------------------------------------------------------ header
+// ------------------------------------------------------------------ tempo / meter
 
-function buildHeader() {
+function buildTempo() {
   const host = $('globalKnobs');
   knobs.bpm = new Knob(host, {
     label: 'BPM', min: 60, max: 200, step: 1, value: state.bpm, def: 120, format: (v) => v,
-    onChange: (v) => { state.bpm = v; engine.send({ t: 'bpm', v }); save(); },
+    onChange: (v) => { state.bpm = v; engine.send({ t: 'bpm', v }); renderLcd(); save(); },
   });
   knobs.swing = new Knob(host, {
     label: 'SWING', min: 0, max: 0.5, value: state.swing, def: 0, format: (v) => Math.round(50 + v * 50) + '%',
@@ -537,9 +651,6 @@ function buildHeader() {
     label: 'MASTER', value: state.master, def: 0.8, format: (v) => Math.round(v * 100),
     onChange: (v) => { state.master = v; engine.send({ t: 'master', v }); save(); },
   });
-
-  $('play').addEventListener('click', togglePlay);
-  $('rec').addEventListener('click', toggleRec);
 
   const m = $('meter');
   for (let r = 0; r < 2; r++) {
@@ -562,24 +673,26 @@ function togglePlay() {
 
 function toggleRec() {
   recArm = !recArm;
-  $('rec').classList.toggle('lit', recArm);
   engine.send({ t: 'recArm', v: recArm });
+  renderTop();
 }
 
 function onTransport(v) {
   playing = v;
-  $('play').classList.toggle('lit', v);
   if (!v) {
     engine.clearTimed();
     setPlayhead(-1);
+    $('brandDot').classList.remove('on');
+    dev.logo.classList.remove('on');
     playPat = -1;
     queued = -1;
     jumpTo = -1;
     chainAt = 0;
-    renderPatterns();
-    renderChain();
-    $('brandDot').classList.remove('on');
   }
+  renderTop();
+  renderBottom();
+  renderChain();
+  renderLcd();
 }
 
 function renderMeter() {
@@ -662,10 +775,10 @@ async function loopPress() {
 }
 
 function renderLooper() {
-  const [label, text] = LOOP_TEXT[loop.s];
+  const [text, longText] = LOOP_TEXT[loop.s];
   $('loopBtn').dataset.s = loop.s;
-  $('loopLabel').textContent = label;
-  $('loopState').textContent = 'LOOPER · ' + text + (loop.len ? ` · ${loop.sec.toFixed(1)}s` : '');
+  $('loopLabel').textContent = text;
+  $('loopState').textContent = longText + (loop.len ? ` · ${loop.sec.toFixed(1)}s` : '');
   const empty = loop.s === LOOP.EMPTY;
   for (const el of $('loopBars').children) {
     el.classList.toggle('lit', +el.dataset.v === loop.bars);
@@ -682,8 +795,8 @@ function renderLooper() {
     leds.innerHTML = '';
     ui.loopLeds = Array.from({ length: loop.bars }, () => leds.appendChild(document.createElement('span')));
   }
-  const color = getComputedStyle($('loopBtn')).getPropertyValue('--c');
-  leds.style.setProperty('--lc', color);
+  leds.style.setProperty('--lc', getComputedStyle($('loopBtn')).getPropertyValue('--c'));
+  if (dev.top.length) { renderTop(); renderLcd(); }
 }
 
 function renderLoopProgress() {
@@ -701,13 +814,18 @@ function bindKeys() {
     const k = e.key.toLowerCase();
     const pad = KEYS.indexOf(k);
     if (pad >= 0) { hitPad(pad, e.shiftKey ? 127 : 110); return; }
-    if (k >= '1' && k <= '8') { pickPattern(+k - 1); return; }
+    if (k >= '1' && k <= '8') { pressPattern(+k - 1); return; }
     if (k === ' ') { e.preventDefault(); togglePlay(); }
+    else if (k === 'arrowup') { e.preventDefault(); select((sel + N - 1) % N); }
+    else if (k === 'arrowdown') { e.preventDefault(); select((sel + 1) % N); }
+    else if (k === '[') pageChain(-1);
+    else if (k === ']') pageChain(1);
     else if (k === 'm') toggleSong();
     else if (k === 'x') toggleRec();
     else if (k === 'l') loopPress();
     else if (k === 'k') engine.send({ t: 'loop', cmd: 'stop' });
     else if (k === 'u') engine.send({ t: 'loop', cmd: 'undo' });
+    else if (k === 'escape') disarm();
   });
   // Browsers can suspend audio (tab switch, iOS interruptions); resume on interaction.
   const wake = () => engine.ctx && engine.ctx.state !== 'running' && engine.ctx.resume();
@@ -727,20 +845,25 @@ function bindEngine() {
       // The engine switched patterns on this bar: follow it.
       playPat = ev.p;
       if (queued === ev.p) queued = -1;
-      if (ev.p !== view) setView(ev.p); else renderPatterns();
+      if (ev.p !== view) setView(ev.p); else renderBottom();
     }
     if (ev.c >= 0 && ev.c !== chainAt) {
       chainAt = ev.c;
       if (jumpTo === ev.c) jumpTo = -1;
+      chainPage = Math.floor(chainAt / 8);
+      renderTop();
       renderChain();
     }
     setPlayhead(ev.s);
-    $('brandDot').classList.toggle('on', ev.s % 4 === 0);
+    renderLcd();
+    const beat = ev.s % 4 === 0;
+    $('brandDot').classList.toggle('on', beat);
+    dev.logo.classList.toggle('on', beat);
     const pat = state.patterns[ev.p];
-    for (let i = 0; i < N; i++) if (mask & (1 << i)) flash(i, pat[i * STEPS + ev.s] / 127 || 0.8);
+    for (let i = 0; i < N; i++) if (mask & (1 << i)) flashTrack(i, pat[i * STEPS + ev.s] / 127 || 0.8);
   });
   engine.addEventListener('transport', (e) => onTransport(e.detail.v));
-  engine.addEventListener('bpm', (e) => { state.bpm = e.detail.v; knobs.bpm.set(e.detail.v, false); });
+  engine.addEventListener('bpm', (e) => { state.bpm = e.detail.v; knobs.bpm.set(e.detail.v, false); renderLcd(); });
   engine.addEventListener('loop', (e) => { loop = e.detail; renderLooper(); });
   engine.addEventListener('meter', (e) => {
     const d = e.detail;
@@ -752,12 +875,12 @@ function bindEngine() {
   engine.addEventListener('pat', (e) => {
     const { p, i, s, v } = e.detail;
     state.patterns[p][i * STEPS + s] = v;
-    if (p === view) renderStep(i, s);
-    renderPatterns();
+    if (p === view && i === sel) renderSteps();
+    renderBottom();
     save();
   });
   engine.addEventListener('sampled', (e) => onSampled(e.detail));
-  engine.addEventListener('patq', (e) => { queued = e.detail.q; renderPatterns(); });
+  engine.addEventListener('patq', (e) => { queued = e.detail.q; renderBottom(); });
 }
 
 function frame() {
@@ -781,10 +904,8 @@ async function boot() {
   }
   const sr = engine.sampleRate;
 
-  buildHeader();
-  buildPads();
-  buildPatterns();
-  buildSeq();
+  buildTempo();
+  buildDevice();
   buildEditor();
   buildLooper();
   bindEngine();
@@ -799,11 +920,7 @@ async function boot() {
   state.patterns.forEach((data, p) => engine.send({ t: 'pattern', p, data: Uint8Array.from(data) }));
   engine.send({ t: 'chain', data: Uint8Array.from(state.chain) });
   engine.send({ t: 'song', v: state.song });
-  engine.send({ t: 'patSel', p: state.view });
-  view = state.view;
-  renderSteps();
-  renderPatterns();
-  renderChain();
+  engine.send({ t: 'patSel', p: view });
   for (let i = 0; i < N; i++) {
     sendPad(i);
     setSample(i, makeSample(i, sr), 'synth');
@@ -811,7 +928,9 @@ async function boot() {
 
   $('boot').hidden = true;
   $('app').hidden = false;
-  select(0);
+  renderDevice();
+  renderEditor();
+  renderLcd();
   requestAnimationFrame(frame);
 }
 
