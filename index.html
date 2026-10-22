@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pulse</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="boot" id="boot">
+    <button class="power" id="power" aria-label="Start audio">
+      <svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+    </button>
+    <p>Start audio</p>
+  </div>
+
+  <div class="app" id="app" hidden>
+    <header class="bar">
+      <div class="brand"><span class="brand-dot" id="brandDot"></span>PULSE</div>
+      <div class="transport">
+        <button class="btn btn-play" id="play" title="Play / Stop (Space)">
+          <svg viewBox="0 0 24 24"><path class="i-play" d="M8 5v14l11-7z"/><path class="i-stop" d="M6 6h12v12H6z"/></svg>
+        </button>
+        <button class="btn btn-rec" id="rec" title="Record pads into the pattern (X)">REC</button>
+      </div>
+      <div class="knob-row" id="globalKnobs"></div>
+      <div class="meter" id="meter" title="Output level"></div>
+    </header>
+
+    <main class="deck">
+      <section class="panel pads-panel">
+        <div class="pads" id="pads"></div>
+      </section>
+
+      <section class="panel seq-panel">
+        <div class="seq" id="seq"></div>
+      </section>
+
+      <section class="panel edit-panel" id="edit">
+        <div class="edit-head">
+          <span class="edit-dot" id="editDot"></span>
+          <span class="edit-name" id="editName">KICK</span>
+          <span class="edit-src" id="editSrc">synth</span>
+        </div>
+        <canvas class="wave" id="wave"></canvas>
+        <div class="knob-row" id="padKnobs"></div>
+        <div class="edit-btns">
+          <button class="btn" id="load" title="Load an audio file onto this pad">LOAD</button>
+          <button class="btn btn-sample" id="sample" title="Record from the audio input onto this pad">SAMPLE</button>
+          <button class="btn" id="reset" title="Restore the built-in sound">RESET</button>
+          <button class="btn" id="choke" title="Choke group: pads in the group cut each other off">CHOKE</button>
+        </div>
+        <input type="file" id="file" accept="audio/*" hidden>
+      </section>
+    </main>
+
+    <section class="panel looper" id="looper">
+      <button class="loop-btn" id="loopBtn" title="Record / Overdub / Play (L)">
+        <svg viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="44"/><circle class="ring" id="loopRing" cx="50" cy="50" r="44"/></svg>
+        <span id="loopLabel">REC</span>
+      </button>
+      <div class="loop-info">
+        <div class="loop-state" id="loopState">LOOPER · EMPTY</div>
+        <div class="loop-leds" id="loopLeds"></div>
+      </div>
+      <div class="loop-group">
+        <div class="lbl">BARS</div>
+        <div class="seg" id="loopBars"></div>
+      </div>
+      <div class="loop-group">
+        <div class="lbl">SOURCE</div>
+        <div class="seg" id="loopSrc"></div>
+      </div>
+      <div class="loop-group">
+        <div class="lbl">&nbsp;</div>
+        <div class="loop-btns">
+          <button class="btn" id="loopStop" title="Stop loop (K)">STOP</button>
+          <button class="btn" id="loopUndo" title="Undo last overdub (U)">UNDO</button>
+          <button class="btn" id="loopClear" title="Clear loop">CLEAR</button>
+          <button class="btn" id="monitor" title="Hear the audio input">MON</button>
+        </div>
+      </div>
+      <div class="knob-row" id="loopKnobs"></div>
+    </section>
+
+    <footer class="keys">
+      <span><b>Q W E R / A S D F</b> pads</span>
+      <span><b>Space</b> play</span>
+      <span><b>X</b> rec</span>
+      <span><b>L</b> loop</span>
+      <span><b>K</b> loop stop</span>
+      <span><b>U</b> undo</span>
+      <span><b>Shift</b>+click step: accent</span>
+    </footer>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
