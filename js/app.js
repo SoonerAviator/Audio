@@ -293,7 +293,7 @@ function buildDevice() {
     const e = at('button', 'pd pad', 7 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
     e.innerHTML = `<span class="glow"></span><span class="lb">${t.name}</span><span class="key">${KEYS[i].toUpperCase()}</span>`;
     e.title = `${t.name} (${KEYS[i].toUpperCase()})`;
-    tap(e, (ev) => hitPad(i, ev.shiftKey ? 127 : 110));
+    tap(e, (ev) => hitPad(i, hitVelocity(ev)));
     dev.pads.push(e);
   });
 
@@ -512,7 +512,30 @@ function disarm() {
   renderTop();
 }
 
+// How hard a pad was hit, on devices that tell us: pen/touch pressure first, then finger
+// contact size (a firmer hit flattens the fingertip), else a fixed 110. Both adapt to the
+// range this device actually produces, so soft and hard stay usable on any screen.
+const hitRange = { maxP: 0.6, minW: Infinity, maxW: 0 };
+function hitVelocity(ev) {
+  if (ev.shiftKey) return 127;
+  const p = ev.pressure;
+  // Browsers report 0.5 (or 0/1) when there's no real pressure sensor.
+  if (ev.pointerType !== 'mouse' && p > 0 && p !== 0.5 && p !== 1) {
+    hitRange.maxP = Math.max(hitRange.maxP * 0.98, p, 0.3); // hardest recent hit = full velocity
+    return Math.round(30 + 97 * Math.pow(Math.min(1, p / hitRange.maxP), 0.7));
+  }
+  const w = Math.max(ev.width || 0, ev.height || 0);
+  if (ev.pointerType === 'touch' && w > 1) {
+    hitRange.minW = Math.min(hitRange.minW, w);
+    hitRange.maxW = Math.max(hitRange.maxW, w);
+    const span = hitRange.maxW - hitRange.minW;
+    if (span >= 4) return Math.round(40 + 87 * ((w - hitRange.minW) / span));
+  }
+  return 110;
+}
+
 function hitPad(i, vel) {
+  $('lcdHit').textContent = vel;
   engine.send({ t: 'trig', i, v: vel, rec: recArm });
   flashTrack(i, vel / 127);
   if (i !== sel) select(i);
