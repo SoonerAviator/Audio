@@ -9,7 +9,7 @@ const PAT_SIZE = N * STEPS;
 const MAX_CHAIN = 64;
 const PAT_NAMES = 'ABCDEFGH';
 const PAT_COLORS = ['#3dffa8', '#22d3ff', '#6b7bff', '#b46bff', '#ff5ad8', '#ff3b5c', '#ff8a1f', '#ffd23f'];
-const VEL_LEVELS = [20, 36, 52, 68, 84, 100, 116, 127];
+const VEL_LEVELS = [30, 46, 62, 78, 94, 110, 127];
 const WHITE = '#f4f6fa', RED = '#ff3b5c', AMBER = '#ffb020', GREEN = '#3dffa8';
 const KEYS = ['q', 'w', 'e', 'r', 'a', 's', 'd', 'f'];
 const STORE = 'pulse.v1';
@@ -40,6 +40,10 @@ let chainAt = 0;         // current chain entry (or start entry while stopped)
 let jumpTo = -1;         // chain entry waiting for the bar line
 let chainPage = 0;
 let armed = null;        // 'copy' | 'clr' | null
+let selOn = false;       // SELECT active: pads do their second function
+let selLatched = false;  // tapped (latched) rather than held
+let selUsed = false;     // a second function was used while SELECT was held
+let selDownAt = 0;
 let armTimer = 0;
 
 // Inline SVG symbols for the function pads (24×24, stroked unless marked fill).
@@ -63,12 +67,13 @@ const ICONS = {
   reset: '<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v4h4"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   help: '<path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><circle class="f" cx="12" cy="17.5" r="1.2"/>',
+  solo: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M15 12h6M18 9v6"/>',
   speaker: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
   muted: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
 };
 const icon = (name) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
-const dev = { top: [], help: null, left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [], tools: [] };
+const dev = { select: null, dyn: null, top: [], help: null, left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [], tools: [] };
 const ui = { meter: [[], []], loopLeds: [] };
 const knobs = {};
 
@@ -92,7 +97,9 @@ function defaultState() {
   put(1, 5, [11, 13, 15], 84);
   return {
     bpm: 120, swing: 0, master: 0.8, loopGain: 1, loopBars: 2, loopSrc: 1,
-    patterns, view: 0, chain: [0, 0, 0, 1], song: false, track: 0, vel: 100, latTrim: 0,
+    patterns, view: 0, chain: [0, 0, 0, 1], song: false, track: 0, vel: 110, latTrim: 0,
+    dyn: true,   // pads follow touch pressure / contact size
+    solo: -1,    // soloed track, or -1
     pads: TRACKS.map((t) => ({ gain: 0.8, pitch: 0, pan: 0, decay: 1, choke: t.choke || 0, mute: false })),
   };
 }
@@ -114,7 +121,8 @@ function loadState() {
       st.chain = (Array.isArray(st.chain) ? st.chain : []).filter((p) => p >= 0 && p < PATTERNS).slice(0, MAX_CHAIN);
       st.view = st.view >= 0 && st.view < PATTERNS ? st.view : 0;
       st.track = st.track >= 0 && st.track < N ? st.track : 0;
-      if (!VEL_LEVELS.includes(st.vel)) st.vel = 100;
+      if (!VEL_LEVELS.includes(st.vel)) st.vel = 110;
+      if (!(st.solo >= -1 && st.solo < N)) st.solo = -1;
       return st;
     }
   } catch { /* storage unavailable */ }
@@ -132,9 +140,12 @@ function save() {
 // Decay knob 0..1 → seconds to -60 dB; 1 = off (play whole sample).
 const decayTime = (v) => (v >= 1 ? 0 : 0.02 * Math.pow(100, v));
 
+// A track is silent when muted or when another track is soloed.
+const silent = (i) => state.pads[i].mute || (state.solo >= 0 && state.solo !== i);
+
 function sendPad(i) {
   const p = state.pads[i];
-  engine.send({ t: 'pad', i, gain: p.gain, pitch: p.pitch, pan: p.pan, decay: decayTime(p.decay), choke: p.choke, mute: p.mute });
+  engine.send({ t: 'pad', i, gain: p.gain, pitch: p.pitch, pan: p.pan, decay: decayTime(p.decay), choke: p.choke, mute: silent(i) });
 }
 
 function setSample(i, data, name) {
@@ -184,7 +195,7 @@ function flashTrack(t, amt = 1) {
 
 // Top-row round buttons, left to right.
 const TOP = [
-  { key: 'play', title: 'Play / Stop (Space)', fn: () => togglePlay() },
+  { key: 'play', title: 'Play / Stop (Space). SELECT + PLAY: restart from bar 1', fn: () => (selOn ? restart() : togglePlay()) },
   { key: 'rec', title: 'Record pads into the pattern (X)', fn: () => toggleRec() },
   { key: 'song', title: 'Song mode (M)', fn: () => toggleSong() },
   { key: 'copy', title: 'Copy: arm, then tap a pattern to copy this one into it', fn: () => arm('copy') },
@@ -218,6 +229,28 @@ function buildDevice() {
     dev.top[c].title = t.title;
     tap(dev.top[c], t.fn);
   });
+  // SELECT (top-left): hold, or tap to latch, for each pad's second function.
+  dev.select = at('button', 'pd fn select-pad', 0, 0);
+  dev.select.title = 'Select: hold, or tap to latch, for second functions';
+  dev.select.innerHTML = '<span class="num">SEL</span>';
+  dev.select.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    if (selLatched) { setSelect(false); return; }
+    selDownAt = performance.now();
+    selUsed = false;
+    try { dev.select.setPointerCapture(ev.pointerId); } catch { /* pointer already gone */ }
+    setSelect(true);
+  });
+  const selUp = () => {
+    if (!selOn || selLatched) return;
+    // A quick tap with nothing pressed meanwhile latches; a hold acts while held.
+    if (!selUsed && performance.now() - selDownAt < 350) { selLatched = true; renderSelect(); }
+    else setSelect(false);
+  };
+  dev.select.addEventListener('pointerup', selUp);
+  dev.select.addEventListener('pointercancel', selUp);
+  dev.top[0].classList.add('sf'); // pads marked sf have a SELECT function
+
   dev.help = at('button', 'pd fn', 0, 9);
   dev.help.title = 'How the grid works';
   dev.help.innerHTML = icon('help');
@@ -227,12 +260,12 @@ function buildDevice() {
   const leftStrip = at('div', 'strip', 1, 0, 11), rightStrip = at('div', 'strip', 1, 9, 11);
   for (let r = 0; r < 8; r++) {
     dev.left[r] = leftStrip.appendChild(document.createElement('button'));
-    dev.left[r].className = 'pd trk';
+    dev.left[r].className = 'pd trk sf';
     dev.left[r].innerHTML = `<span class="glow"></span><span class="lb">${TRACKS[r].name}</span>`;
     dev.left[r].title = `Select ${TRACKS[r].name} (with CLR armed: clear its steps)`;
     tap(dev.left[r], () => pressTrack(r));
     dev.right[r] = rightStrip.appendChild(document.createElement('button'));
-    dev.right[r].className = 'pd fn mute';
+    dev.right[r].className = 'pd fn mute sf';
     dev.right[r].title = `Mute ${TRACKS[r].name}`;
     tap(dev.right[r], () => toggleMute(r));
   }
@@ -244,12 +277,13 @@ function buildDevice() {
   window.addEventListener('pointerup', endPaint);
   window.addEventListener('pointercancel', endPaint);
   for (let s = 0; s < STEPS; s++) {
-    const e = at('button', 'pd', 1 + (s >> 3), 1 + (s & 7));
+    const e = at('button', 'pd sf', 1 + (s >> 3), 1 + (s & 7));
     e.title = `Step ${s + 1}`;
     e.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
       if (e.hasPointerCapture(ev.pointerId)) e.releasePointerCapture(ev.pointerId); // let drags reach other steps
-      const v = state.patterns[view][sel * STEPS + s] ? 0 : ev.shiftKey ? 127 : state.vel;
+      const cur = state.patterns[view][sel * STEPS + s];
+      const v = selOn ? (selUsed = true, state.vel) : cur ? 0 : ev.shiftKey ? 127 : state.vel;
       paint.set(ev.pointerId, v);
       setStep(sel, s, v);
     });
@@ -257,9 +291,12 @@ function buildDevice() {
     dev.steps.push(e);
   }
 
-  // Row 3: velocity for new steps.
+  // Row 3: DYN switch, then the velocity bar (new steps, and pad hits without pressure).
+  dev.dyn = at('button', 'pd fn', 3, 1);
+  dev.dyn.innerHTML = '<span class="num">DYN</span>';
+  tap(dev.dyn, () => { state.dyn = !state.dyn; renderVel(); save(); });
   VEL_LEVELS.forEach((v, c) => {
-    const e = at('button', 'pd', 3, 1 + c);
+    const e = at('button', 'pd', 3, 2 + c);
     e.title = `Velocity ${v}`;
     tap(e, () => { state.vel = v; renderVel(); renderLcd(); save(); });
     dev.vel.push(e);
@@ -267,14 +304,14 @@ function buildDevice() {
 
   // Row 4: song chain, 8 entries per page.
   for (let c = 0; c < 8; c++) {
-    const e = at('button', 'pd', 4, 1 + c);
+    const e = at('button', 'pd sf', 4, 1 + c);
     tap(e, () => pressChain(chainPage * 8 + c));
     dev.chain.push(e);
   }
 
   // Row 5: patterns A–H.
   for (let p = 0; p < PATTERNS; p++) {
-    const e = at('button', 'pd', 5, 1 + p);
+    const e = at('button', 'pd sf', 5, 1 + p);
     e.title = `Pattern ${PAT_NAMES[p]} (${p + 1})`;
     tap(e, () => pressPattern(p));
     dev.pats.push(e);
@@ -290,17 +327,20 @@ function buildDevice() {
   // Rows 7–10: drum pads, 2×2 cells each. Invisible sizers keep those rows square.
   for (let r = 7; r < 11; r++) at('div', 'sizer', r, 1);
   TRACKS.forEach((t, i) => {
-    const e = at('button', 'pd pad', 7 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
+    const e = at('button', 'pd pad sf', 7 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
     e.innerHTML = `<span class="glow"></span><span class="lb">${t.name}</span><span class="key">${KEYS[i].toUpperCase()}</span>`;
     e.title = `${t.name} (${KEYS[i].toUpperCase()})`;
-    tap(e, (ev) => hitPad(i, hitVelocity(ev)));
+    tap(e, (ev) => {
+      if (selOn) { selUsed = true; select(i); return; } // SELECT: pick the track silently
+      hitPad(i, hitVelocity(ev));
+    });
     dev.pads.push(e);
   });
 
   // Row 11: sample tools for the selected track, each 2 cells wide under a drum pad column.
   at('div', 'sizer', 11, 1);
   for (let k = 0; k < 4; k++) {
-    const e = at('button', 'pd fn wide', 11, 1 + k * 2, 1, 2);
+    const e = at('button', 'pd fn wide' + (k === 2 ? ' sf' : ''), 11, 1 + k * 2, 1, 2);
     tap(e, () => pressTool(k));
     dev.tools.push(e);
   }
@@ -316,6 +356,19 @@ function renderDevice() {
   renderLoopRow();
   renderPads();
   renderTools();
+  renderSelect();
+}
+
+function setSelect(on) {
+  selOn = on;
+  if (!on) selLatched = false;
+  renderSelect();
+}
+
+function renderSelect() {
+  light(dev.select, AMBER, selOn ? (selLatched ? 'acc' : 'on') : 'dim');
+  $('device').classList.toggle('select', selOn);
+  $('lcd').classList.toggle('hinting', selOn);
 }
 
 function renderTools() {
@@ -357,11 +410,12 @@ function renderTop() {
 
 function renderSide() {
   for (let t = 0; t < N; t++) {
-    const muted = state.pads[t].mute;
-    light(dev.left[t], TRACKS[t].color, t === sel ? 'on' : muted ? '' : 'dim');
-    const m = dev.right[t], ico = muted ? 'muted' : 'speaker';
-    if (m.dataset.ico !== ico) { m.innerHTML = icon(ico); m.dataset.ico = ico; }
-    light(m, muted ? AMBER : TRACKS[t].color, muted ? 'on' : 'dim');
+    const muted = state.pads[t].mute, off = silent(t), solo = state.solo === t;
+    light(dev.left[t], TRACKS[t].color, t === sel ? 'on' : off ? '' : 'dim');
+    const m = dev.right[t], ico = solo ? 'solo' : off ? 'muted' : 'speaker';
+    content(m, ico, icon(ico));
+    light(m, solo ? GREEN : muted ? AMBER : TRACKS[t].color, solo || muted ? 'on' : off ? '' : 'dim');
+    m.title = solo ? `${TRACKS[t].name} is soloed (SELECT + this pad to unsolo)` : `Mute ${TRACKS[t].name} (SELECT + this pad: solo)`;
   }
 }
 
@@ -439,7 +493,7 @@ function renderLoopRow() {
 }
 
 function renderSteps() {
-  const pat = state.patterns[view], color = TRACKS[sel].color, muted = state.pads[sel].mute;
+  const pat = state.patterns[view], color = TRACKS[sel].color, muted = silent(sel);
   for (let s = 0; s < STEPS; s++) {
     const v = pat[sel * STEPS + s];
     const e = dev.steps[s];
@@ -449,6 +503,10 @@ function renderSteps() {
 }
 
 function renderVel() {
+  light(dev.dyn, AMBER, state.dyn ? 'on' : 'dim');
+  dev.dyn.title = state.dyn
+    ? 'DYN on: pads follow how hard you hit (where the device reports it). Tap to play every hit at the velocity bar level.'
+    : 'DYN off: pads play at the velocity bar level. Tap to follow how hard you hit.';
   VEL_LEVELS.forEach((v, c) => {
     // A rising bar: levels up to the chosen one are softly lit, the chosen one glows.
     light(dev.vel[c], WHITE, v === state.vel ? 'on' : 'dim');
@@ -479,7 +537,7 @@ function renderChain() {
 }
 
 function renderPads() {
-  TRACKS.forEach((t, i) => light(dev.pads[i], t.color, i === sel ? 'on' : state.pads[i].mute ? 'dim' : 'mid'));
+  TRACKS.forEach((t, i) => light(dev.pads[i], t.color, i === sel ? 'on' : silent(i) ? 'dim' : 'mid'));
 }
 
 function setPlayhead(s) {
@@ -491,7 +549,7 @@ function setPlayhead(s) {
 
 function renderLcd() {
   $('lcdPat').textContent = PAT_NAMES[view] + (songActive() ? ` · SONG ${chainAt + 1}/${state.chain.length}` : '');
-  $('lcdTrk').textContent = TRACKS[sel].name + (state.pads[sel].mute ? ' (M)' : '');
+  $('lcdTrk').textContent = TRACKS[sel].name + (state.solo === sel ? ' (S)' : silent(sel) ? ' (M)' : '');
   $('lcdVel').textContent = state.vel;
   $('lcdStep').textContent = curStep < 0 ? '--' : String(curStep + 1).padStart(2, '0');
   $('lcdLoop').textContent = `S${loop.slot + 1} ${LOOP_TEXT[loop.s]}` + ((loop.has >> loop.slot) & 1 ? ` ${loop.bars}B` : '');
@@ -518,6 +576,7 @@ function disarm() {
 const hitRange = { maxP: 0.6, minW: Infinity, maxW: 0 };
 function hitVelocity(ev) {
   if (ev.shiftKey) return 127;
+  if (!state.dyn) return state.vel;
   const p = ev.pressure;
   // Browsers report 0.5 (or 0/1) when there's no real pressure sensor.
   if (ev.pointerType !== 'mouse' && p > 0 && p !== 0.5 && p !== 1) {
@@ -531,7 +590,7 @@ function hitVelocity(ev) {
     const span = hitRange.maxW - hitRange.minW;
     if (span >= 4) return Math.round(40 + 87 * ((w - hitRange.minW) / span));
   }
-  return 110;
+  return state.vel; // no pressure info: use the velocity bar
 }
 
 function hitPad(i, vel) {
@@ -542,7 +601,8 @@ function hitPad(i, vel) {
 }
 
 function pressTrack(t) {
-  if (armed === 'clr') {
+  if (armed === 'clr' || selOn) {
+    if (selOn) selUsed = true;
     const pat = state.patterns[view].slice();
     pat.fill(0, t * STEPS, (t + 1) * STEPS);
     writePattern(view, pat);
@@ -564,11 +624,18 @@ function select(t) {
 }
 
 function toggleMute(t) {
-  state.pads[t].mute = !state.pads[t].mute;
-  sendPad(t);
+  if (selOn) {
+    selUsed = true;
+    state.solo = state.solo === t ? -1 : t;
+    for (let i = 0; i < N; i++) sendPad(i);
+  } else {
+    state.pads[t].mute = !state.pads[t].mute;
+    sendPad(t);
+  }
   renderSide();
   renderPads();
-  if (t === sel) { renderSteps(); renderLcd(); }
+  renderSteps();
+  renderLcd();
   save();
 }
 
@@ -591,7 +658,8 @@ function writePattern(p, data) {
 }
 
 function pressPattern(p) {
-  if (armed === 'copy') {
+  if (armed === 'copy' || selOn) {
+    if (selOn) selUsed = true;
     if (p !== view) writePattern(p, state.patterns[view].slice());
     disarm();
     pickPattern(p);
@@ -659,7 +727,8 @@ function sendChain() {
 
 function pressChain(k) {
   const len = state.chain.length;
-  if (armed === 'clr') {
+  if (armed === 'clr' || selOn) {
+    if (selOn) selUsed = true;
     if (k < len) {
       state.chain.splice(k, 1);
       if (chainAt >= state.chain.length) chainAt = 0;
@@ -725,6 +794,10 @@ function buildEditor() {
 function pressTool(k) {
   if (k === 0) $('file').click();
   else if (k === 1) toggleSampling();
+  else if (k === 2 && selOn) { // SELECT + RESET: every track back to its built-in sound
+    selUsed = true;
+    for (let i = 0; i < N; i++) setSample(i, makeSample(i, engine.sampleRate), 'synth');
+  }
   else if (k === 2) setSample(sel, makeSample(sel, engine.sampleRate), 'synth');
   else {
     state.pads[sel].choke = state.pads[sel].choke ? 0 : 1;
@@ -842,6 +915,12 @@ function buildTempo() {
     }
     m.appendChild(row);
   }
+}
+
+function restart() {
+  selUsed = true;
+  if (playing) engine.send({ t: 'stop' });
+  engine.send({ t: 'play' });
 }
 
 function togglePlay() {
@@ -1013,7 +1092,7 @@ function bindKeys() {
     if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT' || $('help').open) return;
     const k = e.key.toLowerCase();
     const pad = KEYS.indexOf(k);
-    if (pad >= 0) { hitPad(pad, e.shiftKey ? 127 : 110); return; }
+    if (pad >= 0) { hitPad(pad, e.shiftKey ? 127 : state.vel); return; }
     if (k >= '1' && k <= '8') { pressPattern(+k - 1); return; }
     if (k === ' ') { e.preventDefault(); togglePlay(); }
     else if (k === 'arrowup') { e.preventDefault(); select((sel + N - 1) % N); }

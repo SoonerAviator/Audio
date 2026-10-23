@@ -108,6 +108,9 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 }
 .lcd span { white-space: nowrap; }
 .lcd i { font-style: normal; color: #2a7a55; margin-right: 6px; }
+.lcd .lcd-hint { display: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--amber); text-shadow: 0 0 6px #ffb02066; }
+.lcd.hinting > span { display: none; }
+.lcd.hinting > .lcd-hint { display: inline; }
 
 /* ------------------------------------------------------------ device */
 .device {
@@ -191,6 +194,10 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .pad .lb { left: 10px; bottom: 8px; font-size: 11px; }
 .pad .key { position: absolute; right: 9px; top: 7px; font-size: 10px; font-weight: 700; color: #0007; pointer-events: none; }
 .pad.dim .key { color: color-mix(in srgb, var(--c) 60%, #fff); opacity: .6; }
+
+/* SELECT on: pads without a second function step back */
+.device.select .pd:not(.sf):not(.select-pad) { filter: brightness(.4) saturate(.6); }
+.device.select .pd.sf { box-shadow: inset 0 0 0 1px #ffb02066; }
 
 /* edge pads: function symbols, track select, mute */
 .pd .ico {

@@ -24,6 +24,7 @@
         <span title="Velocity of the last pad hit"><i>HIT</i><b id="lcdHit">--</b></span>
         <span><i>STEP</i><b id="lcdStep">--</b></span>
         <span><i>LOOP</i><b id="lcdLoop">EMPTY</b></span>
+        <span class="lcd-hint">SEL · pad: select · M: solo · track: clear · step: set vel · pattern: copy · chain: delete · ▶: restart · reset: all</span>
       </div>
       <div class="meter" id="meter" title="Output level"></div>
     </header>
@@ -61,12 +62,13 @@
       </div>
       <dl>
           <dt>Rows 1–2</dt><dd>16 steps of the selected track. Shift-click for an accent.</dd>
-          <dt>Row 3</dt><dd>Velocity for new steps.</dd>
+          <dt>Row 3</dt><dd><b>DYN</b> switch, then the velocity bar. With DYN on, pads follow how hard you hit (on devices that report pressure or contact size). With DYN off, and for mouse and keyboard, pads play at the bar's level. New steps always use the bar.</dd>
           <dt>Row 4</dt><dd>Song chain. Tap <b>+</b> to add the pattern you're editing, tap an entry to jump to it.</dd>
           <dt>Row 5</dt><dd>Patterns A–H.</dd>
           <dt>Row 6</dt><dd>Looper: record / play / overdub, stop, save slot (opens the slot picker), undo, clear (tap twice), bars, source, monitor. Recording starts the moment you press.</dd>
           <dt>Pads</dt><dd>Play and select tracks.</dd>
           <dt>Row 11</dt><dd>Sample tools for the selected track: load an audio file, record from the mic (tap again to stop), restore the built-in sound, and choke (tracks with choke on cut each other off, like open and closed hi-hats).</dd>
+          <dt>SEL</dt><dd>Hold for a moment, or tap to latch, then press a pad for its second function: drum pad selects the track without playing it, mute pad solos, track pad clears its steps, step sets it to the bar's velocity, pattern copies the current one there, chain entry deletes it, PLAY restarts from bar 1, RESET restores all built-in sounds. Pads without a second function dim while SELECT is on.</dd>
           <dt>COPY</dt><dd>Arm, then tap a pattern to copy this one into it.</dd>
           <dt>CLR</dt><dd>Arm, then tap a pattern, a chain entry or a track pad to clear it.</dd>
           <dt>TAP</dt><dd>Tap in time to set the tempo.</dd>
