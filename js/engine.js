@@ -1,7 +1,9 @@
 // Main-thread controller for the audio worklet. Thin: it only forwards
 // commands and turns worklet events into DOM events.
 
-export const LOOP = { EMPTY: 0, ARMED: 1, REC: 2, PLAY: 3, DUB: 4, STOP: 5 };
+export const LOOP = { EMPTY: 0, REC: 2, PLAY: 3, DUB: 4, STOP: 5 };
+export const LOOP_SECONDS = 30; // per looper slot
+export const LOOP_SLOTS = 8;
 
 export class Engine extends EventTarget {
   constructor() {
@@ -9,6 +11,8 @@ export class Engine extends EventTarget {
     this.ctx = null;
     this.node = null;
     this.mic = null;
+    this.stream = null;
+    this.slotReady = new Array(LOOP_SLOTS).fill(false);
     this.timed = []; // step events waiting for their output time
   }
 
@@ -26,7 +30,7 @@ export class Engine extends EventTarget {
       numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { loopSeconds: 30, sampleSeconds: 10 },
+      processorOptions: { loopSeconds: LOOP_SECONDS, sampleSeconds: 10 },
     });
     this.node.port.onmessage = (e) => this.onMsg(e.data);
     this.node.connect(this.ctx.destination);
@@ -47,6 +51,7 @@ export class Engine extends EventTarget {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, latency: 0 },
       });
+      this.stream = stream;
       this.mic = this.ctx.createMediaStreamSource(stream);
       this.mic.connect(this.node);
       return true;
@@ -54,6 +59,27 @@ export class Engine extends EventTarget {
       console.warn('Audio input unavailable:', err);
       return false;
     }
+  }
+
+  // Looper slot buffers are allocated here and moved (not copied) to the audio thread,
+  // so the audio thread never allocates them. Only slots you actually use cost memory.
+  ensureSlot(i) {
+    if (this.slotReady[i]) return;
+    const n = Math.ceil(LOOP_SECONDS * this.ctx.sampleRate);
+    const L = new Float32Array(n), R = new Float32Array(n);
+    this.send({ t: 'slotBuf', i, L, R }, [L.buffer, R.buffer]);
+    this.slotReady[i] = true;
+  }
+
+  // Seconds between a sound leaving the speakers and the player's response reaching the
+  // engine through the mic: output latency + input latency, as reported by the browser.
+  roundTrip() {
+    const ctx = this.ctx;
+    let s = (ctx.baseLatency || 0) + (ctx.outputLatency || 0);
+    const track = this.stream && this.stream.getAudioTracks()[0];
+    const set = track && track.getSettings ? track.getSettings() : {};
+    if (typeof set.latency === 'number') s += set.latency;
+    return s;
   }
 
   async decode(arrayBuffer) {

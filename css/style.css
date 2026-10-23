@@ -111,11 +111,13 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .lp {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2px repeat(8, minmax(0, 1fr)) 2px minmax(0, 1fr);
-  grid-template-rows: auto 2px repeat(8, auto) 2px auto;
+  grid-template-rows: auto 2px repeat(10, auto);
   gap: 6px;
   align-items: center;
 }
 .sizer { aspect-ratio: 1; visibility: hidden; }
+.strip { display: grid; grid-template-rows: repeat(8, minmax(0, 1fr)); gap: 6px; align-self: stretch; }
+.strip .pd { aspect-ratio: auto; }
 
 /* grid cells */
 .pd {
@@ -169,6 +171,17 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .pd.trk .lb { left: 50%; bottom: 50%; transform: translate(-50%, 50%); font-size: 8px; letter-spacing: 0.04em; white-space: nowrap; }
 .pd.trk:not(.on):not(.dim) .lb { color: var(--faint); }
 .pd.trk.dim .lb { color: color-mix(in srgb, var(--c) 80%, #fff); }
+
+.pd .num {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  font-size: 15px; font-weight: 800; letter-spacing: 0; color: color-mix(in srgb, var(--c) 80%, #fff);
+}
+.pd.on .num, .pd.acc .num, .pd.mid .num { color: #000b; }
+.pd .num small { display: block; font-size: 7px; font-weight: 700; letter-spacing: 0.1em; margin-top: -2px; text-align: center; }
+.pd .prog {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: conic-gradient(#ffffff66 calc(var(--p, 0) * 1turn), transparent 0);
+}
 
 /* round buttons */
 .rb {
@@ -247,35 +260,9 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .guide dd { margin: 0; color: var(--text); }
 .guide b { color: var(--amber); }
 
-/* ------------------------------------------------------------ looper */
-.loop-top { display: flex; align-items: center; gap: 16px; }
-.loop-btn {
-  --c: var(--faint);
-  position: relative; width: 84px; height: 84px; border-radius: 50%; flex: none;
-  background: var(--raised); border: 1px solid var(--line); cursor: pointer;
-  display: grid; place-items: center; font-weight: 700; font-size: 12px; color: var(--c);
-  transition: color .1s, box-shadow .15s;
-}
-.loop-btn svg { position: absolute; inset: 4px; transform: rotate(-90deg); }
-.ring-bg, .ring { fill: none; stroke-width: 4; }
-.ring-bg { stroke: var(--line); }
-.ring { stroke: var(--c); stroke-linecap: round; stroke-dasharray: 276.46; stroke-dashoffset: 276.46; filter: drop-shadow(0 0 4px var(--c)); }
-.loop-btn[data-s="1"] { --c: var(--red); animation: blink .5s steps(1) infinite; }
-.loop-btn[data-s="2"] { --c: var(--red); box-shadow: 0 0 24px -6px var(--red); }
-.loop-btn[data-s="3"] { --c: var(--green); box-shadow: 0 0 24px -6px var(--green); }
-.loop-btn[data-s="4"] { --c: var(--amber); box-shadow: 0 0 24px -6px var(--amber); }
-.loop-btn[data-s="5"] { --c: color-mix(in srgb, var(--green) 45%, #000); }
-.loop-info { display: grid; gap: 8px; min-width: 0; }
-.loop-state { font-weight: 700; color: var(--dim); font-size: 11px; line-height: 1.4; }
-.loop-leds { display: flex; gap: 5px; flex-wrap: wrap; }
-.loop-leds span { width: 14px; height: 6px; border-radius: 3px; background: var(--line); }
-.loop-leds span.on { background: var(--lc, var(--green)); box-shadow: 0 0 8px var(--lc, var(--green)); }
-.loop-group { display: grid; gap: 6px; }
-.lbl { font-size: 9px; color: var(--dim); letter-spacing: 0.14em; }
-.seg { display: flex; gap: 4px; }
-.seg .btn { flex: 1; padding: 0 8px; }
-.loop-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.loop-btns .btn { padding: 0; }
+/* ------------------------------------------------------------ looper panel */
+.loop-state { font-weight: 700; color: var(--text); font-size: 11px; line-height: 1.4; }
+.loop-note { margin: 0; color: var(--dim); font-size: 11px; letter-spacing: 0.02em; line-height: 1.45; }
 
 .keys { display: flex; gap: 18px; flex-wrap: wrap; color: var(--faint); font-size: 10px; padding: 0 4px; justify-content: center; }
 .keys b { color: var(--dim); font-weight: 600; }
@@ -292,7 +279,9 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   .pd { border-radius: 4px; }
   .pd .lb { font-size: 7px; left: 3px; bottom: 2px; letter-spacing: 0; }
   .pd.trk .lb { font-size: 6px; left: 50%; bottom: 50%; }
-  .lp { grid-template-columns: minmax(0, 1fr) 1px repeat(8, minmax(0, 1fr)) 1px minmax(0, 1fr); grid-template-rows: auto 1px repeat(8, auto) 1px auto; }
+  .lp { grid-template-columns: minmax(0, 1fr) 1px repeat(8, minmax(0, 1fr)) 1px minmax(0, 1fr); grid-template-rows: auto 1px repeat(10, auto); }
+  .strip { gap: 4px; }
+  .pd .num { font-size: 11px; }
   .pad .lb { font-size: 9px; left: 7px; bottom: 5px; }
   .pad .key { display: none; }
   .meter { margin-left: auto; }

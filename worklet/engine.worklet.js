@@ -20,9 +20,12 @@ const METER_EVERY = 8;          // blocks between meter/looper status packets
 const RESTORE_CHUNK = 32768;    // samples per block when undoing an overdub
 const KILL_LEVEL = 1e-4;        // voice is freed below this envelope level
 const CLIP_T = 0.8;             // soft clip threshold
+const SLOTS = 8;                // looper save slots
+const FADE = 256;               // looper fade length in samples (start/stop/switch)
+const EDGE = 64;                // fade at the recorded loop's seam
 
-// Looper states (mirrored in js/engine.js)
-const L_EMPTY = 0, L_ARMED = 1, L_REC = 2, L_PLAY = 3, L_DUB = 4, L_STOP = 5;
+// Looper states (mirrored in js/engine.js). L_ARMED is no longer used: recording starts on press.
+const L_EMPTY = 0, L_REC = 2, L_PLAY = 3, L_DUB = 4, L_STOP = 5;
 
 class PulseEngine extends AudioWorkletProcessor {
   constructor(options) {
@@ -80,24 +83,44 @@ class PulseEngine extends AudioWorkletProcessor {
     this.jump = -1;       // chain entry to jump to at the next bar line
     this.song = false;
 
-    // Looper (stereo). gen[] marks which samples the current overdub touched,
-    // so undo restores exactly those without range bookkeeping or clears.
-    this.loopL = new Float32Array(this.loopMax);
-    this.loopR = new Float32Array(this.loopMax);
+    // Looper: 8 save slots, one playing at a time. Slot buffers are allocated on the main
+    // thread and transferred in ('slotBuf'), so nothing large is allocated here.
+    // The play/record position is derived from the transport clock (clock mod loop length),
+    // so recording can start the instant it's pressed and the loop still stays on the grid.
+    // gen[] marks which samples the current overdub touched, so undo restores exactly those.
+    this.slotL = new Array(SLOTS).fill(null);
+    this.slotR = new Array(SLOTS).fill(null);
+    this.slotBars = new Uint8Array(SLOTS);
+    this.slotHas = new Uint8Array(SLOTS);
+    this.slot = 0;
+    this.loopL = null;
+    this.loopR = null;
     this.undoL = new Float32Array(this.loopMax);
     this.undoR = new Float32Array(this.loopMax);
     this.gen = new Uint32Array(this.loopMax);
     this.session = 1;
     this.dubbed = false;
     this.lState = L_EMPTY;
-    this.lLen = 0;
-    this.lPos = 0;
-    this.lBars = 2;
-    this.lBar = 0;
-    this.lSrc = 0;        // 0 = audio input, 1 = drum bus
+    this.barsSetting = 2; // bar count for the next recording
+    this.lBars = 2;       // bar count of the active slot
+    this.lenF = 0;        // active loop length in frames (fractional, matches the bar grid)
+    this.lSrc = 1;        // 0 = audio input, 1 = drum bus
     this.lGain = 1;
+    this.latency = 0;     // input round-trip compensation in frames (audio input only)
+    this.recCount = 0;
+    this.recTotal = 0;
+    this.dubAfter = false; // pressed again while recording: go straight into overdub
+    this.ramp = 1;        // playback fade-in after start / slot switch
+    this.tailL = null;    // fading-out copy of what was playing (stop / clear / switch)
+    this.tailR = null;
+    this.tailLenF = 0;
+    this.tailPos = 0;
+    this.tailLeft = 0;
+    this.tailGain = 0;
     this.restoreIdx = 0;
     this.restoreLeft = 0;
+    this.lp = 0;          // loop progress 0..1 for the UI
+    this.lb = 0;          // current bar of the loop for the UI
 
     // Sampler recording
     this.sBuf = new Float32Array(this.sampMax);
@@ -150,7 +173,7 @@ class PulseEngine extends AudioWorkletProcessor {
       case 'play': this.start(); break;
       case 'stop': this.stop(); break;
       case 'bpm':
-        if (this.lState === L_EMPTY) { this.bpm = d.v; this.updateTempo(); }
+        if (!this.anyLoop()) { this.bpm = d.v; this.updateTempo(); }
         this.port.postMessage({ t: 'bpm', v: this.bpm });
         break;
       case 'swing': this.swing = d.v; break;
@@ -158,9 +181,20 @@ class PulseEngine extends AudioWorkletProcessor {
       case 'recArm': this.recArm = !!d.v; break;
       case 'monitor': this.monitor = !!d.v; break;
       case 'loop': this.loopCmd(d.cmd); break;
-      case 'loopBars': if (this.lState === L_EMPTY) this.lBars = d.v; this.postLoop(); break;
+      case 'loopBars':
+        this.barsSetting = d.v;
+        if (this.lState === L_EMPTY) this.lBars = Math.min(d.v, this.maxBars());
+        this.postLoop();
+        break;
       case 'loopSrc': this.lSrc = d.v; break;
       case 'loopGain': this.lGain = d.v; break;
+      case 'latency': this.latency = Math.max(0, d.v | 0); break;
+      case 'slotBuf':
+        this.slotL[d.i] = d.L;
+        this.slotR[d.i] = d.R;
+        if (d.i === this.slot) { this.loopL = d.L; this.loopR = d.R; }
+        break;
+      case 'slot': this.selectSlot(d.i); break;
       case 'sampRec': this.sTrack = d.i; this.sLen = 0; break;
       case 'sampStop': this.finishSampling(); break;
     }
@@ -224,8 +258,7 @@ class PulseEngine extends AudioWorkletProcessor {
       this.queued = -1;
       this.port.postMessage({ t: 'patq', q: -1 });
     }
-    // Existing loop restarts on the first bar.
-    if (this.lState >= L_PLAY) this.lBar = this.lBars;
+    this.ramp = 0; // a loop picks up from bar 1 with a short fade-in
     this.port.postMessage({ t: 'transport', v: true });
   }
 
@@ -234,7 +267,8 @@ class PulseEngine extends AudioWorkletProcessor {
     this.playing = false;
     this.chainPos = 0; // the song restarts from the top
     this.jump = -1;
-    if (this.lState === L_REC || this.lState === L_ARMED) this.lState = L_EMPTY;
+    if (this.lState === L_PLAY || this.lState === L_DUB) this.fadeOut();
+    if (this.lState === L_REC) this.lState = L_EMPTY;
     else if (this.lState === L_DUB) this.lState = L_PLAY;
     this.postLoop();
     this.port.postMessage({ t: 'transport', v: false });
@@ -312,11 +346,9 @@ class PulseEngine extends AudioWorkletProcessor {
 
   runSequencer(n) {
     const end = this.clock + n;
-    let barAt = -1;
     while (this.nextStep < end) {
       const off = Math.max(0, Math.floor(this.nextStep - this.clock));
       const s = this.step;
-      if (s === 0) barAt = off;
       const base = this.pat * PAT_SIZE;
       let mask = 0;
       for (let t = 0; t < TRACKS; t++) {
@@ -335,7 +367,6 @@ class PulseEngine extends AudioWorkletProcessor {
       if (this.step === 0) this.barEnd();
     }
     this.clock = end;
-    return barAt;
   }
 
   // Quantize a live pad hit to the nearest step.
@@ -352,33 +383,53 @@ class PulseEngine extends AudioWorkletProcessor {
 
   // ---------------------------------------------------------------- looper
 
+  anyLoop() {
+    if (this.lState === L_REC) return true;
+    for (let i = 0; i < SLOTS; i++) if (this.slotHas[i]) return true;
+    return false;
+  }
+
+  maxBars() {
+    return Math.max(1, Math.floor(this.loopMax / Math.ceil(this.barFrames())));
+  }
+
+  posAt(frame) {
+    return this.lenF > 0 ? frame % this.lenF : 0;
+  }
+
   loopCmd(cmd) {
     const st = this.lState;
     if (cmd === 'rec') {
+      if (!this.loopL) return;
       if (st === L_EMPTY) {
-        // Clamp bar count so the loop fits the buffer at this tempo.
-        const maxBars = Math.max(1, Math.floor(this.loopMax / Math.ceil(this.barFrames())));
-        if (this.lBars > maxBars) this.lBars = maxBars;
-        this.lState = L_ARMED;
-        this.start(); // recording always starts on a bar line
-      } else if (st === L_ARMED) this.lState = L_EMPTY;
-      else if (st === L_REC) this.lBars = this.lBar;          // close the loop at the next bar line
-      else if (st === L_PLAY) this.beginDub();
+        this.lBars = Math.min(this.barsSetting, this.maxBars());
+        this.lenF = this.lBars * this.barFrames();
+        this.recTotal = Math.round(this.lenF);
+        this.recCount = 0;
+        this.dubAfter = false;
+        this.dubbed = false;
+        this.lState = L_REC;
+        this.start(); // no-op while playing: recording starts now, wherever the bar is
+      } else if (st === L_REC) this.dubAfter = !this.dubAfter;
+      else if (st === L_PLAY) { if (this.playing) this.beginDub(); else this.start(); }
       else if (st === L_DUB) this.lState = L_PLAY;
-      else if (st === L_STOP) { this.lState = L_PLAY; this.start(); }
+      else if (st === L_STOP) { this.lState = L_PLAY; this.ramp = 0; this.start(); }
     } else if (cmd === 'stop') {
-      if (st === L_PLAY || st === L_DUB) this.lState = L_STOP;
-      else if (st === L_ARMED || st === L_REC) this.lState = L_EMPTY;
+      if (st === L_PLAY || st === L_DUB) { this.fadeOut(); this.lState = L_STOP; }
+      else if (st === L_REC) this.lState = L_EMPTY;
     } else if (cmd === 'clear') {
+      if (st === L_PLAY || st === L_DUB) this.fadeOut();
       this.lState = L_EMPTY;
-      this.lLen = 0;
+      this.slotHas[this.slot] = 0;
+      this.slotBars[this.slot] = 0;
+      this.lBars = Math.min(this.barsSetting, this.maxBars());
       this.restoreLeft = 0;
       this.dubbed = false;
     } else if (cmd === 'undo') {
       if (this.dubbed && this.restoreLeft === 0) {
         if (this.lState === L_DUB) this.lState = L_PLAY;
         this.restoreIdx = 0;
-        this.restoreLeft = this.lLen;
+        this.restoreLeft = Math.ceil(this.lenF);
       }
     }
     this.postLoop();
@@ -391,77 +442,121 @@ class PulseEngine extends AudioWorkletProcessor {
     this.lState = L_DUB;
   }
 
-  onBar() {
-    const st = this.lState;
-    if (st === L_ARMED) {
-      this.lState = L_REC;
-      this.lPos = 0;
-      this.lBar = 1;
-      this.dubbed = false;
-      this.postLoop();
-    } else if (st === L_REC) {
-      if (this.lBar >= this.lBars) {
-        this.lLen = this.lPos;
-        this.lState = L_PLAY;
-        this.lPos = 0;
-        this.lBar = 1;
-        this.postLoop();
-      } else this.lBar++;
-    } else if (st >= L_PLAY) {
-      // Re-align to the bar grid each cycle so the loop never drifts.
-      if (this.lBar >= this.lBars) { this.lPos = 0; this.lBar = 1; } else this.lBar++;
+  // Switch the active loop. Positions come from the clock, so the new loop lands in time.
+  selectSlot(i) {
+    if (i === this.slot || i < 0 || i >= SLOTS || this.restoreLeft > 0) return;
+    const prev = this.lState;
+    if (prev === L_PLAY || prev === L_DUB) this.fadeOut();
+    this.slot = i;
+    this.loopL = this.slotL[i];
+    this.loopR = this.slotR[i];
+    this.session++;
+    this.dubbed = false;
+    if (this.slotHas[i]) {
+      this.lBars = this.slotBars[i];
+      this.lenF = this.lBars * this.barFrames();
+      this.lState = prev === L_STOP ? L_STOP : L_PLAY; // a stopped looper stays stopped
+      this.ramp = 0;
+    } else {
+      this.lState = L_EMPTY;
+      this.lBars = Math.min(this.barsSetting, this.maxBars());
     }
+    this.postLoop();
   }
 
-  loopSegment(L, R, inL, inR, a, b) {
-    const st = this.lState;
-    if (st === L_EMPTY || st === L_ARMED) return;
-    const bl = this.loopL, br = this.loopR;
-    const srcL = this.lSrc ? L : inL, srcR = this.lSrc ? R : inR;
-    let pos = this.lPos;
+  // Keep what was playing sounding for FADE samples, ramping down, so cuts never click.
+  fadeOut() {
+    if (!this.loopL || this.lenF <= 0) return;
+    this.tailL = this.loopL;
+    this.tailR = this.loopR;
+    this.tailLenF = this.lenF;
+    this.tailPos = this.posAt(this.clock);
+    this.tailLeft = FADE;
+    this.tailGain = this.lGain * this.ramp;
+  }
+
+  runTail(L, R, n) {
+    const tl = this.tailL, tr = this.tailR, lenF = this.tailLenF, g = this.tailGain / FADE;
+    let p = this.tailPos, left = this.tailLeft;
+    for (let i = 0; i < n && left > 0; i++, left--) {
+      const k = p | 0;
+      L[i] += tl[k] * g * left;
+      R[i] += tr[k] * g * left;
+      p += 1;
+      if (p >= lenF) p -= lenF;
+    }
+    this.tailPos = p;
+    this.tailLeft = left;
+  }
+
+  runLooper(L, R, inL, inR, n, clock0) {
+    const st = this.lState, bl = this.loopL, br = this.loopR;
+    if (!bl || st === L_EMPTY || st === L_STOP) return;
+    const lenF = this.lenF;
+    const useIn = this.lSrc === 0;
+    const srcL = useIn ? inL : L, srcR = useIn ? inR : R;
+    let p = clock0 % lenF;
+    // Audio from the input arrives `latency` frames after it was played against what you heard,
+    // so it's written that far back in the loop.
+    let pw = p - (useIn ? this.latency % lenF : 0);
+    if (pw < 0) pw += lenF;
+    this.lb = Math.floor(p / this.barFrames()) + 1;
 
     if (st === L_REC) {
-      const max = this.loopMax;
-      for (let i = a; i < b; i++) {
-        if (pos >= max) { // safety: buffer full, close the loop here
-          this.lLen = max; this.lState = L_PLAY; pos = 0; this.lBar = 1; this.postLoop();
+      const total = this.recTotal;
+      let c = this.recCount;
+      for (let i = 0; i < n; i++) {
+        const edge = c < EDGE ? c / EDGE : total - c < EDGE ? (total - c) / EDGE : 1; // soften the seam
+        const w = pw | 0;
+        bl[w] = srcL[i] * edge;
+        br[w] = srcR[i] * edge;
+        pw += 1;
+        if (pw >= lenF) pw -= lenF;
+        if (++c >= total) {
+          this.slotHas[this.slot] = 1;
+          this.slotBars[this.slot] = this.lBars;
+          if (this.dubAfter) this.beginDub(); else this.lState = L_PLAY;
+          this.ramp = 1;
+          this.postLoop();
           break;
         }
-        bl[pos] = srcL[i];
-        br[pos] = srcR[i];
-        pos++;
       }
-    } else if (st === L_DUB) {
-      const len = this.lLen, g = this.lGain, ses = this.session;
-      const ul = this.undoL, ur = this.undoR, gen = this.gen;
-      for (let i = a; i < b; i++) {
-        if (pos >= len) pos = 0;
-        const sl = srcL[i], sr = srcR[i]; // read source before adding playback
-        const ol = bl[pos], or = br[pos];
-        if (gen[pos] !== ses) { ul[pos] = ol; ur[pos] = or; gen[pos] = ses; }
-        bl[pos] = ol + sl;
-        br[pos] = or + sr;
-        L[i] += ol * g;
-        R[i] += or * g;
-        pos++;
+      this.recCount = c;
+      this.lp = c / total;
+      return;
+    }
+
+    const g = this.lGain, step = 1 / FADE;
+    let ramp = this.ramp;
+    if (st === L_PLAY) {
+      for (let i = 0; i < n; i++) {
+        const k = p | 0, a = g * ramp;
+        L[i] += bl[k] * a;
+        R[i] += br[k] * a;
+        if (ramp < 1) ramp = Math.min(1, ramp + step);
+        p += 1;
+        if (p >= lenF) p -= lenF;
+      }
+    } else { // L_DUB
+      const ses = this.session, ul = this.undoL, ur = this.undoR, gen = this.gen;
+      for (let i = 0; i < n; i++) {
+        const k = p | 0, w = pw | 0, a = g * ramp;
+        const sl = srcL[i], sr = srcR[i]; // read the source before playback is mixed in
+        L[i] += bl[k] * a;
+        R[i] += br[k] * a;
+        if (gen[w] !== ses) { ul[w] = bl[w]; ur[w] = br[w]; gen[w] = ses; }
+        bl[w] += sl;
+        br[w] += sr;
+        if (ramp < 1) ramp = Math.min(1, ramp + step);
+        p += 1;
+        if (p >= lenF) p -= lenF;
+        pw += 1;
+        if (pw >= lenF) pw -= lenF;
       }
       this.dubbed = true;
-    } else {
-      const len = this.lLen;
-      if (st === L_PLAY) {
-        const g = this.lGain;
-        for (let i = a; i < b; i++) {
-          if (pos >= len) pos = 0;
-          L[i] += bl[pos] * g;
-          R[i] += br[pos] * g;
-          pos++;
-        }
-      } else { // stopped: keep counting so it stays in sync
-        pos += b - a;
-        while (pos >= len) pos -= len;
-      }
     }
-    this.lPos = pos;
+    this.ramp = ramp;
+    this.lp = p / lenF;
   }
 
   runRestore() {
@@ -483,9 +578,13 @@ class PulseEngine extends AudioWorkletProcessor {
   }
 
   postLoop() {
+    let has = 0;
+    for (let i = 0; i < SLOTS; i++) if (this.slotHas[i]) has |= 1 << i;
+    const full = this.slotHas[this.slot] === 1;
     this.port.postMessage({
-      t: 'loop', s: this.lState, bars: this.lBars, len: this.lLen,
-      undo: this.dubbed && this.restoreLeft === 0, sec: this.lLen / sampleRate,
+      t: 'loop', s: this.lState, bars: this.lBars, slot: this.slot, has, dubAfter: this.dubAfter,
+      len: full ? Math.round(this.lenF) : 0, sec: full ? this.lenF / sampleRate : 0,
+      undo: this.dubbed && this.restoreLeft === 0,
     });
   }
 
@@ -522,16 +621,12 @@ class PulseEngine extends AudioWorkletProcessor {
       if (this.sLen >= this.sampMax) this.finishSampling();
     }
 
-    const barAt = this.playing ? this.runSequencer(n) : -1;
+    const clock0 = this.clock;
+    if (this.playing) this.runSequencer(n);
     this.renderVoices(L, R, n);
 
-    if (this.playing && this.lState !== L_EMPTY) {
-      if (barAt >= 0) {
-        this.loopSegment(L, R, inL, inR, 0, barAt);
-        this.onBar();
-        this.loopSegment(L, R, inL, inR, barAt, n);
-      } else this.loopSegment(L, R, inL, inR, 0, n);
-    }
+    if (this.playing) this.runLooper(L, R, inL, inR, n, clock0);
+    if (this.tailLeft > 0) this.runTail(L, R, n);
     if (this.restoreLeft > 0) this.runRestore();
 
     // Monitor, master gain, soft clip, peak
@@ -553,8 +648,8 @@ class PulseEngine extends AudioWorkletProcessor {
     if (++this.blocks >= METER_EVERY) {
       this.port.postMessage({
         t: 'meter', l: pl, r: pr,
-        lp: this.lLen ? this.lPos / this.lLen : (this.lState === L_REC ? this.lPos / (this.barFrames() * this.lBars) : 0),
-        lb: this.lBar,
+        lp: this.lp,
+        lb: this.lb,
       });
       this.blocks = 0;
       pl = pr = 0;

@@ -1,4 +1,4 @@
-import { Engine, LOOP } from './engine.js';
+import { Engine, LOOP, LOOP_SLOTS } from './engine.js';
 import { Knob } from './knob.js';
 import { TRACKS, makeSample, normalize } from './kit.js';
 
@@ -26,7 +26,11 @@ let view = state.view;   // pattern shown (and edited)
 let playing = false;
 let recArm = false;
 let sampling = -1;
-let loop = { s: LOOP.EMPTY, bars: state.loopBars, len: 0, undo: false };
+let loop = { s: LOOP.EMPTY, bars: state.loopBars, slot: 0, has: 0, len: 0, sec: 0, undo: false, dubAfter: false };
+let loopPick = false;    // looper row is showing the slot picker
+let loopPickTimer = 0;
+let loopClearArmed = 0;
+let taps = [];
 let loopPos = 0, loopBar = 0;
 let meterL = 0, meterR = 0;
 let curStep = -1;
@@ -49,12 +53,18 @@ const ICONS = {
   prev: '<path d="M15 5l-7 7 7 7"/>',
   next: '<path d="M9 5l7 7-7 7"/>',
   loop: '<path d="M17 3l3 3-3 3"/><path d="M4 12v-2a4 4 0 0 1 4-4h12"/><path d="M7 21l-3-3 3-3"/><path d="M20 12v2a4 4 0 0 1-4 4H4"/>',
+  tap: '<path d="M8 21h8l-3-17h-2z"/><path d="M12 15l6-8"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  dub: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  drum: '<ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v7c0 1.7 3.6 3 8 3s8-1.3 8-3V8"/>',
+  phones: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="7" rx="1.5"/><rect x="17" y="14" width="4" height="7" rx="1.5"/>',
   speaker: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
   muted: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
 };
 const icon = (name) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
-const dev = { top: [], left: [], right: [], bottom: [], steps: [], vel: [], chain: [], pads: [], logo: null };
+const dev = { top: [], left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [], logo: null };
 const ui = { meter: [[], []], loopLeds: [] };
 const knobs = {};
 
@@ -78,7 +88,7 @@ function defaultState() {
   put(1, 5, [11, 13, 15], 84);
   return {
     bpm: 120, swing: 0, master: 0.8, loopGain: 1, loopBars: 2, loopSrc: 1,
-    patterns, view: 0, chain: [0, 0, 0, 1], song: false, track: 0, vel: 100,
+    patterns, view: 0, chain: [0, 0, 0, 1], song: false, track: 0, vel: 100, latTrim: 0,
     pads: TRACKS.map((t) => ({ gain: 0.8, pitch: 0, pan: 0, decay: 1, choke: t.choke || 0, mute: false })),
   };
 }
@@ -174,21 +184,23 @@ const TOP = [
   { key: 'clr', title: 'Clear: arm, then tap a pattern, chain entry or track button', fn: () => arm('clr') },
   { key: 'prev', title: 'Previous chain page ([)', fn: () => pageChain(-1) },
   { key: 'next', title: 'Next chain page (])', fn: () => pageChain(1) },
-  { key: 'loop', title: 'Looper record / overdub / play (L)', fn: () => loopPress() },
+  { key: 'tap', title: 'Tap tempo: tap in time to set the BPM', fn: () => tapTempo() },
 ];
 
 function buildDevice() {
   const g = document.createElement('div');
   g.className = 'lp';
   $('device').appendChild(g);
-  // Logical 10×10 layout (0 and 9 are the edge rows/columns). The CSS grid has a thin
-  // spacer track between the edges and the 8×8 core, so map logical → physical tracks.
-  const phys = (i) => (i === 0 ? 1 : i === 9 ? 12 : i + 2);
+  // Logical layout: row 0 is the function row, rows 1–10 the 8-wide core; columns 0 and 9
+  // are the track/mute strips. The CSS grid has thin spacer tracks around the core,
+  // so logical indices map to physical grid lines.
+  const physR = (r) => (r === 0 ? 1 : r + 2);
+  const physC = (c) => (c === 0 ? 1 : c === 9 ? 12 : c + 2);
   const at = (tag, cls, r, c, rs = 1, cs = 1) => {
     const e = document.createElement(tag);
     e.className = cls;
-    e.style.gridRow = `${phys(r)} / span ${rs}`;
-    e.style.gridColumn = `${phys(c)} / span ${cs}`;
+    e.style.gridRow = `${physR(r)} / span ${rs}`;
+    e.style.gridColumn = `${physC(c)} / span ${cs}`;
     return g.appendChild(e);
   };
   const tap = (e, fn) => e.addEventListener('pointerdown', (ev) => { ev.preventDefault(); fn(ev); });
@@ -200,12 +212,16 @@ function buildDevice() {
   });
   dev.logo = at('div', 'logo', 0, 9);
 
+  // Track select / mute strips run the full height of the core.
+  const leftStrip = at('div', 'strip', 1, 0, 10), rightStrip = at('div', 'strip', 1, 9, 10);
   for (let r = 0; r < 8; r++) {
-    dev.left[r] = at('button', 'pd trk', r + 1, 0);
+    dev.left[r] = leftStrip.appendChild(document.createElement('button'));
+    dev.left[r].className = 'pd trk';
     dev.left[r].innerHTML = `<span class="lb">${TRACKS[r].name}</span>`;
     dev.left[r].title = `Select ${TRACKS[r].name} (with CLR armed: clear its steps)`;
     tap(dev.left[r], () => pressTrack(r));
-    dev.right[r] = at('button', 'pd fn mute', r + 1, 9);
+    dev.right[r] = rightStrip.appendChild(document.createElement('button'));
+    dev.right[r].className = 'pd fn mute';
     dev.right[r].title = `Mute ${TRACKS[r].name}`;
     tap(dev.right[r], () => toggleMute(r));
   }
@@ -242,21 +258,30 @@ function buildDevice() {
     dev.chain.push(e);
   }
 
-  // Rows 5–8: drum pads, 2×2 cells each. Invisible sizers keep those rows square.
-  for (let r = 5; r < 9; r++) at('div', 'sizer', r, 1);
+  // Row 5: patterns A–H.
+  for (let p = 0; p < PATTERNS; p++) {
+    const e = at('button', 'pd', 5, 1 + p);
+    e.title = `Pattern ${PAT_NAMES[p]} (${p + 1})`;
+    tap(e, () => pressPattern(p));
+    dev.pats.push(e);
+  }
+
+  // Row 6: looper.
+  for (let c = 0; c < 8; c++) {
+    const e = at('button', 'pd fn', 6, 1 + c);
+    tap(e, () => pressLoop(c));
+    dev.loop.push(e);
+  }
+
+  // Rows 7–10: drum pads, 2×2 cells each. Invisible sizers keep those rows square.
+  for (let r = 7; r < 11; r++) at('div', 'sizer', r, 1);
   TRACKS.forEach((t, i) => {
-    const e = at('button', 'pd pad', 5 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
+    const e = at('button', 'pd pad', 7 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
     e.innerHTML = `<span class="lb">${t.name}</span><span class="key">${KEYS[i].toUpperCase()}</span>`;
     e.title = `${t.name} (${KEYS[i].toUpperCase()})`;
     tap(e, (ev) => hitPad(i, ev.shiftKey ? 127 : 110));
     dev.pads.push(e);
   });
-
-  for (let p = 0; p < PATTERNS; p++) {
-    dev.bottom[p] = at('button', 'rb', 9, p + 1);
-    dev.bottom[p].title = `Pattern ${PAT_NAMES[p]} (${p + 1})`;
-    tap(dev.bottom[p], () => pressPattern(p));
-  }
 }
 
 function renderDevice() {
@@ -266,12 +291,11 @@ function renderDevice() {
   renderSteps();
   renderVel();
   renderChain();
+  renderLoopRow();
   renderPads();
 }
 
 function renderTop() {
-  const loopColor = { [LOOP.EMPTY]: RED, [LOOP.ARMED]: RED, [LOOP.REC]: RED, [LOOP.PLAY]: GREEN, [LOOP.DUB]: AMBER, [LOOP.STOP]: GREEN }[loop.s];
-  const loopMode = loop.s === LOOP.ARMED ? 'blink' : loop.s === LOOP.EMPTY || loop.s === LOOP.STOP ? 'dim' : 'on';
   const maxPage = maxChainPage();
   const spec = {
     play: [playing ? 'stop' : 'play', GREEN, playing ? 'on' : 'dim'],
@@ -281,7 +305,7 @@ function renderTop() {
     clr: ['clr', RED, armed === 'clr' ? 'blink' : 'dim'],
     prev: ['prev', WHITE, chainPage > 0 ? 'dim' : ''],
     next: ['next', WHITE, chainPage < maxPage ? 'dim' : ''],
-    loop: ['loop', loopColor, loopMode],
+    tap: ['tap', WHITE, knobs.bpm && knobs.bpm.disabled ? '' : 'dim'],
   };
   TOP.forEach((t, c) => {
     const [ico, color, mode] = spec[t.key];
@@ -301,12 +325,77 @@ function renderSide() {
   }
 }
 
+// Pattern row (row 5).
 function renderBottom() {
   for (let p = 0; p < PATTERNS; p++) {
-    const b = dev.bottom[p];
-    b.textContent = PAT_NAMES[p];
-    light(b, PAT_COLORS[p], p === queued ? 'blink' : p === view ? 'on' : hasNotes(p) ? 'dim' : '');
+    const e = dev.pats[p];
+    light(e, PAT_COLORS[p], p === queued ? 'blink' : p === view ? 'on' : hasNotes(p) ? 'mid' : 'dim');
+    label(e, PAT_NAMES[p]);
   }
+}
+
+// Swap a pad's inner markup only when it changes (keeps the DOM quiet on every render).
+function content(e, key, html) {
+  if (e.dataset.k === key) return;
+  e.dataset.k = key;
+  e.innerHTML = html;
+}
+
+// Looper row (row 6): either the controls or, while picking, the 8 save slots.
+function renderLoopRow() {
+  const has = (i) => (loop.has >> i) & 1;
+  if (loopPick) {
+    for (let i = 0; i < LOOP_SLOTS; i++) {
+      const e = dev.loop[i];
+      content(e, `slot${i}`, `<span class="num">${i + 1}</span>`);
+      light(e, PAT_COLORS[i], i === loop.slot ? 'on' : has(i) ? 'mid' : 'dim');
+      e.title = `Loop slot ${i + 1}${has(i) ? '' : ' (empty)'}`;
+    }
+    dev.loopProg = null;
+    return;
+  }
+  const [e0, e1, e2, e3, e4, e5, e6, e7] = dev.loop;
+  const st = loop.s;
+  const main = {
+    [LOOP.EMPTY]: ['rec', RED, 'dim', 'Record a loop (L): starts now'],
+    [LOOP.REC]: ['rec', loop.dubAfter ? AMBER : RED, 'on', 'Recording: tap again to go straight into overdub'],
+    [LOOP.PLAY]: ['play', GREEN, 'on', 'Playing: tap to overdub (L)'],
+    [LOOP.DUB]: ['dub', AMBER, 'on', 'Overdubbing: tap to stop overdubbing (L)'],
+    [LOOP.STOP]: ['play', GREEN, 'dim', 'Stopped: tap to play (L)'],
+  }[st];
+  content(e0, 'main-' + main[0], `<span class="prog"></span>${icon(main[0])}`);
+  dev.loopProg = e0.querySelector('.prog');
+  light(e0, main[1], main[2]);
+  e0.title = main[3];
+
+  content(e1, 'stop', icon('stop'));
+  light(e1, WHITE, st === LOOP.REC || st === LOOP.PLAY || st === LOOP.DUB ? 'dim' : '');
+  e1.title = 'Stop loop (K)';
+
+  content(e2, `slot-${loop.slot}`, `<span class="num">${loop.slot + 1}<small>SLOT</small></span>`);
+  light(e2, PAT_COLORS[loop.slot], has(loop.slot) ? 'mid' : 'dim');
+  e2.title = 'Choose a loop slot';
+
+  content(e3, 'undo', icon('undo'));
+  light(e3, WHITE, loop.undo ? 'dim' : '');
+  e3.title = 'Undo last overdub (U)';
+
+  content(e4, 'clr', icon('clr'));
+  light(e4, RED, loopClearArmed ? 'blink' : has(loop.slot) || st === LOOP.REC ? 'dim' : '');
+  e4.title = 'Clear this slot (tap twice)';
+
+  content(e5, `bars-${loop.bars}`, `<span class="num">${loop.bars}<small>BAR${loop.bars > 1 ? 'S' : ''}</small></span>`);
+  light(e5, AMBER, st === LOOP.EMPTY ? 'dim' : 'mid');
+  e5.title = st === LOOP.EMPTY ? 'Loop length: tap to cycle 1, 2, 4, 8 bars' : 'Loop length (clear the slot to change it)';
+
+  const src = state.loopSrc === 0 ? 'mic' : 'drum';
+  content(e6, 'src-' + src, icon(src));
+  light(e6, WHITE, 'dim');
+  e6.title = state.loopSrc === 0 ? 'Recording from the mic (tap for drums)' : 'Recording the drums (tap for mic)';
+
+  content(e7, 'mon', icon('phones'));
+  light(e7, GREEN, state.monitor ? 'on' : 'dim');
+  e7.title = 'Hear the mic input';
 }
 
 function renderSteps() {
@@ -362,7 +451,7 @@ function renderLcd() {
   $('lcdTrk').textContent = TRACKS[sel].name + (state.pads[sel].mute ? ' (M)' : '');
   $('lcdVel').textContent = state.vel;
   $('lcdStep').textContent = curStep < 0 ? '--' : String(curStep + 1).padStart(2, '0');
-  $('lcdLoop').textContent = LOOP_TEXT[loop.s][1].split(' ·')[0];
+  $('lcdLoop').textContent = `S${loop.slot + 1} ${LOOP_TEXT[loop.s]}`;
 }
 
 // ------------------------------------------------------------------ actions
@@ -580,7 +669,7 @@ async function toggleSampling() {
     engine.send({ t: 'sampStop' });
     return;
   }
-  if (!(await engine.enableInput())) {
+  if (!engine.mic && !(await micOn())) {
     $('editSrc').textContent = 'mic unavailable · use LOAD';
     return;
   }
@@ -733,100 +822,127 @@ function renderMeter() {
 // ------------------------------------------------------------------ looper
 
 const LOOP_TEXT = {
-  [LOOP.EMPTY]: ['REC', 'EMPTY'],
-  [LOOP.ARMED]: ['WAIT', 'ARMED · STARTS ON BAR'],
-  [LOOP.REC]: ['REC', 'RECORDING'],
-  [LOOP.PLAY]: ['PLAY', 'PLAYING · PRESS TO DUB'],
-  [LOOP.DUB]: ['DUB', 'OVERDUBBING'],
-  [LOOP.STOP]: ['STOP', 'STOPPED'],
+  [LOOP.EMPTY]: 'EMPTY',
+  [LOOP.REC]: 'REC',
+  [LOOP.PLAY]: 'PLAY',
+  [LOOP.DUB]: 'DUB',
+  [LOOP.STOP]: 'STOP',
 };
 
 function buildLooper() {
-  const bars = $('loopBars');
-  [1, 2, 4, 8].forEach((b) => {
-    const el = document.createElement('button');
-    el.className = 'btn';
-    el.textContent = b;
-    el.dataset.v = b;
-    el.addEventListener('click', () => {
-      state.loopBars = b;
-      engine.send({ t: 'loopBars', v: b });
-      save();
-    });
-    bars.appendChild(el);
-  });
-  const src = $('loopSrc');
-  ['MIC', 'DRUMS'].forEach((name, v) => {
-    const el = document.createElement('button');
-    el.className = 'btn';
-    el.textContent = name;
-    el.dataset.v = v;
-    el.addEventListener('click', () => {
-      state.loopSrc = v;
-      engine.send({ t: 'loopSrc', v });
-      renderLooper();
-      save();
-    });
-    src.appendChild(el);
-  });
-
-  new Knob($('loopKnobs'), {
-    label: 'LOOP', value: state.loopGain, def: 1, format: (v) => Math.round(v * 100),
+  const host = $('loopKnobs');
+  new Knob(host, {
+    label: 'LEVEL', value: state.loopGain, def: 1, format: (v) => Math.round(v * 100),
     onChange: (v) => { state.loopGain = v; engine.send({ t: 'loopGain', v }); save(); },
   }).el.style.setProperty('--kc', 'var(--green)');
-
-  $('loopBtn').addEventListener('click', loopPress);
-  $('loopStop').addEventListener('click', () => engine.send({ t: 'loop', cmd: 'stop' }));
-  $('loopUndo').addEventListener('click', () => engine.send({ t: 'loop', cmd: 'undo' }));
-  $('loopClear').addEventListener('click', () => engine.send({ t: 'loop', cmd: 'clear' }));
-  $('monitor').addEventListener('click', async () => {
-    const btn = $('monitor');
-    const on = !btn.classList.contains('lit');
-    if (on && !(await engine.enableInput())) return;
-    btn.classList.toggle('lit', on);
-    engine.send({ t: 'monitor', v: on });
-  });
+  new Knob(host, {
+    label: 'MIC TRIM', min: -30, max: 60, step: 1, value: state.latTrim, def: 0, bipolar: true,
+    format: (v) => (v > 0 ? '+' : '') + v + 'ms',
+    onChange: (v) => { state.latTrim = v; sendLatency(); save(); },
+  }).el.style.setProperty('--kc', 'var(--green)');
+  state.monitor = false;
   renderLooper();
 }
 
-async function loopPress() {
-  if (loop.s === LOOP.EMPTY && state.loopSrc === 0 && !(await engine.enableInput())) {
-    $('loopState').textContent = 'MIC UNAVAILABLE · USE DRUMS SOURCE';
+// Tell the engine how far to pull mic recordings back to line up with what you heard.
+function sendLatency() {
+  const ms = Math.max(0, engine.roundTrip() * 1000 + state.latTrim);
+  engine.send({ t: 'latency', v: Math.round((ms / 1000) * engine.sampleRate) });
+  $('latInfo').textContent = engine.mic
+    ? `Mic recordings are shifted ${Math.round(ms)} ms earlier to make up for audio latency. Use MIC TRIM if they still sound late or early.`
+    : 'Mic latency compensation starts once the mic is on. Drum recordings need none.';
+}
+
+async function micOn() {
+  if (!(await engine.enableInput())) return false;
+  sendLatency();
+  return true;
+}
+
+async function loopMain() {
+  if (loop.s === LOOP.EMPTY && state.loopSrc === 0 && !engine.mic && !(await micOn())) {
+    $('loopState').textContent = 'MIC UNAVAILABLE · SWITCH THE SOURCE TO DRUMS';
     return;
   }
   engine.send({ t: 'loop', cmd: 'rec' });
 }
 
-function renderLooper() {
-  const [text, longText] = LOOP_TEXT[loop.s];
-  $('loopBtn').dataset.s = loop.s;
-  $('loopLabel').textContent = text;
-  $('loopState').textContent = longText + (loop.len ? ` · ${loop.sec.toFixed(1)}s` : '');
-  const empty = loop.s === LOOP.EMPTY;
-  for (const el of $('loopBars').children) {
-    el.classList.toggle('lit', +el.dataset.v === loop.bars);
-    el.disabled = !empty && +el.dataset.v !== loop.bars;
-  }
-  for (const el of $('loopSrc').children) el.classList.toggle('lit', +el.dataset.v === state.loopSrc);
-  $('loopUndo').disabled = !loop.undo;
-  $('loopStop').disabled = !(loop.s === LOOP.PLAY || loop.s === LOOP.DUB);
-  $('loopClear').disabled = empty;
-  knobs.bpm.setDisabled(!empty, empty ? '' : 'Clear the loop to change tempo');
+function closePicker() {
+  clearTimeout(loopPickTimer);
+  loopPick = false;
+  renderLoopRow();
+}
 
-  const leds = $('loopLeds');
-  if (ui.loopLeds.length !== loop.bars) {
-    leds.innerHTML = '';
-    ui.loopLeds = Array.from({ length: loop.bars }, () => leds.appendChild(document.createElement('span')));
+async function pressLoop(c) {
+  if (loopPick) {
+    if (c !== loop.slot) {
+      engine.ensureSlot(c);
+      engine.send({ t: 'slot', i: c });
+    }
+    closePicker();
+    return;
   }
-  leds.style.setProperty('--lc', getComputedStyle($('loopBtn')).getPropertyValue('--c'));
-  if (dev.top.length) { renderTop(); renderLcd(); }
+  if (c === 0) loopMain();
+  else if (c === 1) engine.send({ t: 'loop', cmd: 'stop' });
+  else if (c === 2) {
+    loopPick = true;
+    loopPickTimer = setTimeout(closePicker, 6000);
+    renderLoopRow();
+  } else if (c === 3) engine.send({ t: 'loop', cmd: 'undo' });
+  else if (c === 4) {
+    if (loopClearArmed) {
+      clearTimeout(loopClearArmed);
+      loopClearArmed = 0;
+      engine.send({ t: 'loop', cmd: 'clear' });
+    } else {
+      loopClearArmed = setTimeout(() => { loopClearArmed = 0; renderLoopRow(); }, 3000);
+    }
+    renderLoopRow();
+  } else if (c === 5) {
+    if (loop.s !== LOOP.EMPTY) return;
+    const opts = [1, 2, 4, 8];
+    state.loopBars = opts[(opts.indexOf(loop.bars) + 1) % opts.length];
+    engine.send({ t: 'loopBars', v: state.loopBars });
+    save();
+  } else if (c === 6) {
+    state.loopSrc = state.loopSrc ? 0 : 1;
+    engine.send({ t: 'loopSrc', v: state.loopSrc });
+    if (state.loopSrc === 0 && !engine.mic) micOn();
+    renderLoopRow();
+    save();
+  } else if (c === 7) {
+    const on = !state.monitor;
+    if (on && !engine.mic && !(await micOn())) return;
+    state.monitor = on;
+    engine.send({ t: 'monitor', v: on });
+    renderLoopRow();
+  }
+}
+
+function renderLooper() {
+  const full = (loop.has >> loop.slot) & 1;
+  const text = LOOP_TEXT[loop.s];
+  $('loopState').textContent = `SLOT ${loop.slot + 1} · ${text}` + (full ? ` · ${loop.bars} BAR${loop.bars > 1 ? 'S' : ''} · ${loop.sec.toFixed(1)}s` : '');
+  const locked = loop.has !== 0 || loop.s === LOOP.REC;
+  knobs.bpm.setDisabled(locked, locked ? 'Clear all loop slots to change tempo' : '');
+  if (dev.loop.length) { renderLoopRow(); renderTop(); renderLcd(); }
 }
 
 function renderLoopProgress() {
-  const active = playing && loop.s >= LOOP.REC;
-  const C = 276.46;
-  $('loopRing').style.strokeDashoffset = active ? C * (1 - loopPos) : C;
-  for (let k = 0; k < ui.loopLeds.length; k++) ui.loopLeds[k].classList.toggle('on', active && k === loopBar - 1);
+  if (!dev.loopProg) return;
+  const active = playing && (loop.s === LOOP.REC || loop.s === LOOP.PLAY || loop.s === LOOP.DUB);
+  dev.loopProg.style.setProperty('--p', active ? loopPos.toFixed(3) : 0);
+}
+
+function tapTempo() {
+  flashEl(dev.top[7]);
+  if (knobs.bpm.disabled) return;
+  const now = performance.now();
+  taps = taps.filter((t) => now - t < 2000).slice(-4);
+  taps.push(now);
+  if (taps.length < 2) return;
+  const beat = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+  knobs.bpm.set(Math.round(Math.min(200, Math.max(60, 60000 / beat))));
 }
 
 // ------------------------------------------------------------------ input
@@ -845,10 +961,10 @@ function bindKeys() {
     else if (k === ']') pageChain(1);
     else if (k === 'm') toggleSong();
     else if (k === 'x') toggleRec();
-    else if (k === 'l') loopPress();
+    else if (k === 'l') loopMain();
     else if (k === 'k') engine.send({ t: 'loop', cmd: 'stop' });
     else if (k === 'u') engine.send({ t: 'loop', cmd: 'undo' });
-    else if (k === 'escape') disarm();
+    else if (k === 'escape') { disarm(); if (loopPick) closePicker(); }
   });
   // Browsers can suspend audio (tab switch, iOS interruptions); resume on interaction.
   const wake = () => engine.ctx && engine.ctx.state !== 'running' && engine.ctx.resume();
@@ -940,6 +1056,8 @@ async function boot() {
   engine.send({ t: 'loopGain', v: state.loopGain });
   engine.send({ t: 'loopBars', v: state.loopBars });
   engine.send({ t: 'loopSrc', v: state.loopSrc });
+  engine.ensureSlot(0);
+  sendLatency();
   state.patterns.forEach((data, p) => engine.send({ t: 'pattern', p, data: Uint8Array.from(data) }));
   engine.send({ t: 'chain', data: Uint8Array.from(state.chain) });
   engine.send({ t: 'song', v: state.song });

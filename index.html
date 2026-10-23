@@ -37,31 +37,9 @@
 
         <section class="panel looper" id="looper">
           <h2 class="ph">LOOPER</h2>
-          <div class="loop-top">
-            <button class="loop-btn" id="loopBtn" title="Record / Overdub / Play (L)">
-              <svg viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="44"/><circle class="ring" id="loopRing" cx="50" cy="50" r="44"/></svg>
-              <span id="loopLabel">REC</span>
-            </button>
-            <div class="loop-info">
-              <div class="loop-state" id="loopState">EMPTY</div>
-              <div class="loop-leds" id="loopLeds"></div>
-            </div>
-          </div>
-          <div class="loop-group">
-            <div class="lbl">BARS</div>
-            <div class="seg" id="loopBars"></div>
-          </div>
-          <div class="loop-group">
-            <div class="lbl">SOURCE</div>
-            <div class="seg" id="loopSrc"></div>
-          </div>
-          <div class="loop-btns">
-            <button class="btn" id="loopStop" title="Stop loop (K)">STOP</button>
-            <button class="btn" id="loopUndo" title="Undo last overdub (U)">UNDO</button>
-            <button class="btn" id="loopClear" title="Clear loop">CLEAR</button>
-            <button class="btn" id="monitor" title="Hear the audio input">MON</button>
-          </div>
-          <div class="knob-row" id="loopKnobs"></div>
+          <div class="loop-state" id="loopState">SLOT 1 · EMPTY</div>
+          <div class="knob-row spread" id="loopKnobs"></div>
+          <p class="loop-note" id="latInfo"></p>
         </section>
       </aside>
 
@@ -91,9 +69,12 @@
             <dt>Rows 1–2</dt><dd>16 steps of the selected track. Shift-click for an accent.</dd>
             <dt>Row 3</dt><dd>Velocity for new steps.</dd>
             <dt>Row 4</dt><dd>Song chain. Tap <b>+</b> to add the pattern you're editing, tap an entry to jump to it.</dd>
+            <dt>Row 5</dt><dd>Patterns A–H.</dd>
+            <dt>Row 6</dt><dd>Looper: record / play / overdub, stop, save slot (opens the slot picker), undo, clear (tap twice), bars, source, monitor. Recording starts the moment you press.</dd>
             <dt>Pads</dt><dd>Play and select tracks.</dd>
             <dt>COPY</dt><dd>Arm, then tap a pattern to copy this one into it.</dd>
-            <dt>CLR</dt><dd>Arm, then tap a pattern, a chain entry or a track button to clear it.</dd>
+            <dt>CLR</dt><dd>Arm, then tap a pattern, a chain entry or a track pad to clear it.</dd>
+            <dt>TAP</dt><dd>Tap in time to set the tempo.</dd>
           </dl>
         </section>
       </aside>
@@ -107,9 +88,9 @@
       <span><b>M</b> song</span>
       <span><b>[ ]</b> chain page</span>
       <span><b>X</b> rec</span>
-      <span><b>L</b> loop</span>
+      <span><b>L</b> loop rec/play/dub</span>
       <span><b>K</b> loop stop</span>
-      <span><b>U</b> undo</span>
+      <span><b>U</b> loop undo</span>
     </footer>
   </div>
 
