@@ -37,26 +37,31 @@ export class Knob {
   }
 
   bind() {
-    let y0 = 0, v0 = 0;
-    const move = (e) => {
+    // Each knob follows only the pointer that grabbed it (captured to the knob),
+    // so several knobs can be turned at once with different fingers.
+    let id = null, y0 = 0, v0 = 0;
+    this.el.addEventListener('pointerdown', (e) => {
+      if (this.disabled || id !== null) return;
+      e.preventDefault();
+      id = e.pointerId;
+      y0 = e.clientY;
+      v0 = this.value;
+      this.el.setPointerCapture(id);
+      this.el.classList.add('active');
+    });
+    this.el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id) return;
       const range = this.max - this.min;
       const scale = e.shiftKey ? 800 : 160;
       this.set(v0 + ((y0 - e.clientY) / scale) * range);
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+    });
+    const end = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
       this.el.classList.remove('active');
     };
-    this.el.addEventListener('pointerdown', (e) => {
-      if (this.disabled) return;
-      e.preventDefault();
-      y0 = e.clientY;
-      v0 = this.value;
-      this.el.classList.add('active');
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', up);
-    });
+    this.el.addEventListener('pointerup', end);
+    this.el.addEventListener('pointercancel', end);
     this.el.addEventListener('dblclick', () => !this.disabled && this.set(this.def));
     this.el.addEventListener('wheel', (e) => {
       if (this.disabled) return;

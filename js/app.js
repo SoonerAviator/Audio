@@ -198,6 +198,7 @@ function buildDevice() {
   const g = document.createElement('div');
   g.className = 'lp';
   $('device').appendChild(g);
+  $('device').addEventListener('contextmenu', (e) => e.preventDefault()); // long-press on touch screens
   // Logical layout: row 0 is the function row, rows 1–11 the 8-wide core; columns 0 and 9
   // are the track/mute strips. The CSS grid has thin spacer tracks around the core,
   // so logical indices map to physical grid lines.
@@ -237,8 +238,11 @@ function buildDevice() {
   }
 
   // Rows 1–2: steps of the selected track (drag paints).
-  let paint = null;
-  window.addEventListener('pointerup', () => (paint = null));
+  // One paint stroke per finger: pointerId → velocity being painted.
+  const paint = new Map();
+  const endPaint = (ev) => paint.delete(ev.pointerId);
+  window.addEventListener('pointerup', endPaint);
+  window.addEventListener('pointercancel', endPaint);
   for (let s = 0; s < STEPS; s++) {
     const e = at('button', 'pd', 1 + (s >> 3), 1 + (s & 7));
     e.title = `Step ${s + 1}`;
@@ -246,10 +250,10 @@ function buildDevice() {
       ev.preventDefault();
       if (e.hasPointerCapture(ev.pointerId)) e.releasePointerCapture(ev.pointerId); // let drags reach other steps
       const v = state.patterns[view][sel * STEPS + s] ? 0 : ev.shiftKey ? 127 : state.vel;
-      paint = { v };
+      paint.set(ev.pointerId, v);
       setStep(sel, s, v);
     });
-    e.addEventListener('pointerenter', (ev) => { if (paint && ev.buttons) setStep(sel, s, paint.v); });
+    e.addEventListener('pointerenter', (ev) => { if (paint.has(ev.pointerId)) setStep(sel, s, paint.get(ev.pointerId)); });
     dev.steps.push(e);
   }
 
