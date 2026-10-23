@@ -64,7 +64,7 @@ const ICONS = {
 };
 const icon = (name) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
-const dev = { top: [], left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [], logo: null };
+const dev = { top: [], left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [] };
 const ui = { meter: [[], []], loopLeds: [] };
 const knobs = {};
 
@@ -164,13 +164,16 @@ function label(e, text) {
 
 const velMode = (v) => (v >= 120 ? 'acc' : v >= 72 ? 'on' : 'mid');
 
-function flashEl(e, amt = 1) {
-  e.animate([{ filter: `brightness(${1 + 1.3 * amt})` }, { filter: 'brightness(1)' }], { duration: 220, easing: 'cubic-bezier(.2,.7,.3,1)' });
+// A soft bloom from the pad's centre that fades out: the pad itself never changes.
+function glow(e, amt = 1) {
+  let g = e.querySelector('.glow');
+  if (!g) { g = document.createElement('span'); g.className = 'glow'; e.prepend(g); }
+  g.animate([{ opacity: Math.min(1, 0.9 * amt) }, { opacity: 0 }], { duration: 450, easing: 'cubic-bezier(.25,.6,.3,1)' });
 }
 
 function flashTrack(t, amt = 1) {
-  flashEl(dev.pads[t], amt);
-  flashEl(dev.left[t], amt);
+  glow(dev.pads[t], amt);
+  glow(dev.left[t], amt * 0.7);
 }
 
 // ------------------------------------------------------------------ device
@@ -210,14 +213,13 @@ function buildDevice() {
     dev.top[c].title = t.title;
     tap(dev.top[c], t.fn);
   });
-  dev.logo = at('div', 'logo', 0, 9);
 
   // Track select / mute strips run the full height of the core.
   const leftStrip = at('div', 'strip', 1, 0, 10), rightStrip = at('div', 'strip', 1, 9, 10);
   for (let r = 0; r < 8; r++) {
     dev.left[r] = leftStrip.appendChild(document.createElement('button'));
     dev.left[r].className = 'pd trk';
-    dev.left[r].innerHTML = `<span class="lb">${TRACKS[r].name}</span>`;
+    dev.left[r].innerHTML = `<span class="glow"></span><span class="lb">${TRACKS[r].name}</span>`;
     dev.left[r].title = `Select ${TRACKS[r].name} (with CLR armed: clear its steps)`;
     tap(dev.left[r], () => pressTrack(r));
     dev.right[r] = rightStrip.appendChild(document.createElement('button'));
@@ -277,7 +279,7 @@ function buildDevice() {
   for (let r = 7; r < 11; r++) at('div', 'sizer', r, 1);
   TRACKS.forEach((t, i) => {
     const e = at('button', 'pd pad', 7 + (i >> 2) * 2, 1 + (i & 3) * 2, 2, 2);
-    e.innerHTML = `<span class="lb">${t.name}</span><span class="key">${KEYS[i].toUpperCase()}</span>`;
+    e.innerHTML = `<span class="glow"></span><span class="lb">${t.name}</span><span class="key">${KEYS[i].toUpperCase()}</span>`;
     e.title = `${t.name} (${KEYS[i].toUpperCase()})`;
     tap(e, (ev) => hitPad(i, ev.shiftKey ? 127 : 110));
     dev.pads.push(e);
@@ -409,7 +411,11 @@ function renderSteps() {
 }
 
 function renderVel() {
-  VEL_LEVELS.forEach((v, c) => light(dev.vel[c], WHITE, v === state.vel ? 'on' : v < state.vel ? 'mid' : 'dim'));
+  VEL_LEVELS.forEach((v, c) => {
+    // A rising bar: levels up to the chosen one are softly lit, the chosen one glows.
+    light(dev.vel[c], WHITE, v === state.vel ? 'on' : 'dim');
+    dev.vel[c].classList.toggle('alt', v > state.vel);
+  });
 }
 
 function renderChain() {
@@ -446,12 +452,11 @@ function setPlayhead(s) {
 }
 
 function renderLcd() {
-  $('lcdBpm').textContent = state.bpm;
   $('lcdPat').textContent = PAT_NAMES[view] + (songActive() ? ` · SONG ${chainAt + 1}/${state.chain.length}` : '');
   $('lcdTrk').textContent = TRACKS[sel].name + (state.pads[sel].mute ? ' (M)' : '');
   $('lcdVel').textContent = state.vel;
   $('lcdStep').textContent = curStep < 0 ? '--' : String(curStep + 1).padStart(2, '0');
-  $('lcdLoop').textContent = `S${loop.slot + 1} ${LOOP_TEXT[loop.s]}`;
+  $('lcdLoop').textContent = `S${loop.slot + 1} ${LOOP_TEXT[loop.s]}` + ((loop.has >> loop.slot) & 1 ? ` ${loop.bars}B` : '');
 }
 
 // ------------------------------------------------------------------ actions
@@ -712,6 +717,8 @@ function renderEditor() {
   const ed = $('edit');
   ed.style.setProperty('--c', t.color);
   ed.style.setProperty('--kc', t.color);
+  $('trackKnobs').style.setProperty('--kc', t.color);
+  $('trkKnobName').textContent = t.name;
   $('editName').textContent = t.name;
   $('editSrc').textContent = srcNames[sel];
   knobs.gain.set(p.gain, false);
@@ -752,7 +759,7 @@ function drawWave() {
 function buildTempo() {
   const host = $('globalKnobs');
   knobs.bpm = new Knob(host, {
-    label: 'BPM', min: 60, max: 200, step: 1, value: state.bpm, def: 120, format: (v) => v,
+    label: 'BPM', min: 60, max: 200, step: 1, value: state.bpm, def: 120, display: true, format: (v) => v,
     onChange: (v) => { state.bpm = v; engine.send({ t: 'bpm', v }); renderLcd(); save(); },
   });
   knobs.swing = new Knob(host, {
@@ -794,8 +801,6 @@ function onTransport(v) {
   if (!v) {
     engine.clearTimed();
     setPlayhead(-1);
-    $('brandDot').classList.remove('on');
-    dev.logo.classList.remove('on');
     playPat = -1;
     queued = -1;
     jumpTo = -1;
@@ -835,11 +840,12 @@ function buildLooper() {
     label: 'LEVEL', value: state.loopGain, def: 1, format: (v) => Math.round(v * 100),
     onChange: (v) => { state.loopGain = v; engine.send({ t: 'loopGain', v }); save(); },
   }).el.style.setProperty('--kc', 'var(--green)');
-  new Knob(host, {
+  knobs.trim = new Knob(host, {
     label: 'MIC TRIM', min: -30, max: 60, step: 1, value: state.latTrim, def: 0, bipolar: true,
     format: (v) => (v > 0 ? '+' : '') + v + 'ms',
     onChange: (v) => { state.latTrim = v; sendLatency(); save(); },
-  }).el.style.setProperty('--kc', 'var(--green)');
+  });
+  knobs.trim.el.style.setProperty('--kc', 'var(--green)');
   state.monitor = false;
   renderLooper();
 }
@@ -848,8 +854,8 @@ function buildLooper() {
 function sendLatency() {
   const ms = Math.max(0, engine.roundTrip() * 1000 + state.latTrim);
   engine.send({ t: 'latency', v: Math.round((ms / 1000) * engine.sampleRate) });
-  $('latInfo').textContent = engine.mic
-    ? `Mic recordings are shifted ${Math.round(ms)} ms earlier to make up for audio latency. Use MIC TRIM if they still sound late or early.`
+  if (knobs.trim) knobs.trim.el.title = engine.mic
+    ? `Mic recordings are shifted ${Math.round(ms)} ms earlier to make up for audio latency. Turn this if they still sound late or early.`
     : 'Mic latency compensation starts once the mic is on. Drum recordings need none.';
 }
 
@@ -861,7 +867,7 @@ async function micOn() {
 
 async function loopMain() {
   if (loop.s === LOOP.EMPTY && state.loopSrc === 0 && !engine.mic && !(await micOn())) {
-    $('loopState').textContent = 'MIC UNAVAILABLE · SWITCH THE SOURCE TO DRUMS';
+    $('lcdLoop').textContent = 'NO MIC · USE DRUMS';
     return;
   }
   engine.send({ t: 'loop', cmd: 'rec' });
@@ -920,9 +926,6 @@ async function pressLoop(c) {
 }
 
 function renderLooper() {
-  const full = (loop.has >> loop.slot) & 1;
-  const text = LOOP_TEXT[loop.s];
-  $('loopState').textContent = `SLOT ${loop.slot + 1} · ${text}` + (full ? ` · ${loop.bars} BAR${loop.bars > 1 ? 'S' : ''} · ${loop.sec.toFixed(1)}s` : '');
   const locked = loop.has !== 0 || loop.s === LOOP.REC;
   knobs.bpm.setDisabled(locked, locked ? 'Clear all loop slots to change tempo' : '');
   if (dev.loop.length) { renderLoopRow(); renderTop(); renderLcd(); }
@@ -935,7 +938,7 @@ function renderLoopProgress() {
 }
 
 function tapTempo() {
-  flashEl(dev.top[7]);
+  glow(dev.top[7]);
   if (knobs.bpm.disabled) return;
   const now = performance.now();
   taps = taps.filter((t) => now - t < 2000).slice(-4);
@@ -995,9 +998,6 @@ function bindEngine() {
     }
     setPlayhead(ev.s);
     renderLcd();
-    const beat = ev.s % 4 === 0;
-    $('brandDot').classList.toggle('on', beat);
-    dev.logo.classList.toggle('on', beat);
     const pat = state.patterns[ev.p];
     for (let i = 0; i < N; i++) if (mask & (1 << i)) flashTrack(i, pat[i * STEPS + ev.s] / 127 || 0.8);
   });

@@ -16,9 +16,8 @@
 
   <div class="app" id="app" hidden>
     <header class="bar">
-      <div class="brand"><span class="brand-dot" id="brandDot"></span>PULSE</div>
+      <div class="brand">PULSE</div>
       <div class="lcd" id="lcd">
-        <span><i>BPM</i><b id="lcdBpm">120</b></span>
         <span><i>PAT</i><b id="lcdPat">A</b></span>
         <span><i>TRK</i><b id="lcdTrk">KICK</b></span>
         <span><i>VEL</i><b id="lcdVel">100</b></span>
@@ -28,21 +27,22 @@
       <div class="meter" id="meter" title="Output level"></div>
     </header>
 
+    <section class="panel knobbar">
+      <div class="kgroup">
+        <h2 class="ph">TEMPO</h2>
+        <div class="knob-row" id="globalKnobs"></div>
+      </div>
+      <div class="kgroup" id="trackKnobs">
+        <h2 class="ph">TRACK · <span id="trkKnobName">KICK</span></h2>
+        <div class="knob-row" id="padKnobs"></div>
+      </div>
+      <div class="kgroup">
+        <h2 class="ph">LOOPER</h2>
+        <div class="knob-row" id="loopKnobs"></div>
+      </div>
+    </section>
+
     <main class="rig">
-      <aside class="col col-left">
-        <section class="panel">
-          <h2 class="ph">TEMPO</h2>
-          <div class="knob-row spread" id="globalKnobs"></div>
-        </section>
-
-        <section class="panel looper" id="looper">
-          <h2 class="ph">LOOPER</h2>
-          <div class="loop-state" id="loopState">SLOT 1 · EMPTY</div>
-          <div class="knob-row spread" id="loopKnobs"></div>
-          <p class="loop-note" id="latInfo"></p>
-        </section>
-      </aside>
-
       <section class="device" id="device" aria-label="Pad grid"></section>
 
       <aside class="col col-right">
@@ -53,7 +53,6 @@
             <span class="edit-src" id="editSrc">synth</span>
           </div>
           <canvas class="wave" id="wave"></canvas>
-          <div class="knob-row spread" id="padKnobs"></div>
           <div class="edit-btns">
             <button class="btn" id="load" title="Load an audio file onto this track">LOAD</button>
             <button class="btn btn-sample" id="sample" title="Record from the audio input onto this track">SAMPLE</button>

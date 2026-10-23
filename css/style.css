@@ -65,12 +65,16 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 }
 .bar { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; padding: 4px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.32em; font-size: 14px; }
-.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); transition: background .05s, box-shadow .05s; }
-.brand-dot.on { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+/* knob bar: tempo, selected track and looper knobs in one row */
+.panel.knobbar { display: flex; align-items: flex-end; gap: 14px 28px; flex-wrap: wrap; padding-block: 12px; }
+.kgroup { display: grid; gap: 8px; min-width: 0; }
+.kgroup + .kgroup { border-left: 1px solid var(--line); padding-left: 28px; }
+.kgroup .knob-row { align-items: flex-end; }
 
 .rig {
   display: grid;
-  grid-template-columns: 270px minmax(0, 620px) 300px;
+  grid-template-columns: minmax(0, 640px) 320px;
   justify-content: center;
   gap: 14px;
   align-items: start;
@@ -135,18 +139,33 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   background: radial-gradient(circle at 50% 40%, #ffffff30, transparent 65%);
   opacity: 0; transition: opacity .1s;
 }
-.pd.dim { background: color-mix(in srgb, var(--c) 20%, var(--unlit)); }
-.pd.dim.alt { background: color-mix(in srgb, var(--c) 11%, var(--unlit)); }
-.pd.mid { background: color-mix(in srgb, var(--c) 55%, var(--unlit)); }
-.pd.on { background: var(--c); box-shadow: 0 0 12px -2px var(--c), inset 0 -2px 0 #0004; }
-.pd.on::after { opacity: .7; }
-.pd.acc { background: color-mix(in srgb, var(--c) 72%, #fff); box-shadow: 0 0 18px 0 var(--c); }
-.pd.acc::after { opacity: 1; }
-.pd.ph { box-shadow: inset 0 0 0 2px #ffffffb0; }
-.pd.ph:not(.on):not(.acc):not(.mid) { background: color-mix(in srgb, var(--white) 16%, var(--unlit)); }
-.pd.ph.on, .pd.ph.acc, .pd.ph.mid { background: color-mix(in srgb, var(--c) 50%, #fff); box-shadow: 0 0 24px 2px var(--c); }
-.pd.blink { animation: pblink .5s steps(1) infinite; }
-@keyframes pblink { 50% { background: var(--unlit); box-shadow: none; } }
+/* Lit pads glow from the centre, like an LED behind a diffuser, instead of filling flat. */
+.pd.dim { background: color-mix(in srgb, var(--c) 18%, var(--unlit)); }
+.pd.dim.alt { background: color-mix(in srgb, var(--c) 10%, var(--unlit)); }
+.pd.mid {
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--c) 62%, var(--unlit)) 0%, color-mix(in srgb, var(--c) 34%, var(--unlit)) 100%);
+}
+.pd.on {
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--c) 82%, #fff) 0%, var(--c) 38%, color-mix(in srgb, var(--c) 55%, var(--unlit)) 100%);
+  box-shadow: 0 0 16px -8px var(--c), inset 0 -2px 0 #0004;
+}
+.pd.acc {
+  background: radial-gradient(circle at 50% 50%, #fff 0%, color-mix(in srgb, var(--c) 70%, #fff) 22%, var(--c) 55%, color-mix(in srgb, var(--c) 65%, var(--unlit)) 100%);
+  box-shadow: 0 0 18px -6px var(--c), inset 0 -2px 0 #0004;
+}
+/* playhead: a quiet highlight, not a flash */
+.pd.ph { box-shadow: inset 0 0 0 1px #ffffff55; }
+.pd.ph:not(.on):not(.acc):not(.mid) { background: color-mix(in srgb, var(--white) 9%, var(--unlit)); }
+.pd.ph.on::after, .pd.ph.acc::after, .pd.ph.mid::after { opacity: 1; }
+.pd.ph::after { background: radial-gradient(circle at 50% 50%, #ffffff40, transparent 60%); }
+/* hits: a soft bloom from the centre that fades out (animated from JS) */
+.pd .glow {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--c) 45%, #fff) 0%, color-mix(in srgb, var(--c) 80%, transparent) 30%, transparent 70%);
+}
+/* waiting states pulse slowly instead of blinking */
+.pd.blink { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { filter: brightness(.45) saturate(.7); } }
 .pd .lb {
   position: absolute; left: 6px; bottom: 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
   color: #000a; pointer-events: none;
@@ -196,10 +215,8 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 }
 .rb.dim { color: color-mix(in srgb, var(--c) 80%, #fff); background: color-mix(in srgb, var(--c) 18%, var(--round)); }
 .rb.on { color: #000c; background: var(--c); box-shadow: 0 0 12px -2px var(--c); }
-.rb.blink { animation: rblink .5s steps(1) infinite; }
+.rb.blink { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes rblink { 50% { background: var(--round); color: var(--dim); box-shadow: none; } }
-.logo { justify-self: center; width: 36%; aspect-ratio: 1; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); opacity: .2; transition: opacity .05s; }
-.logo.on { opacity: 1; }
 
 /* ------------------------------------------------------------ buttons */
 .btn {
@@ -222,7 +239,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 }
 .btn:disabled { opacity: .35; cursor: default; }
 .btn-sample { --c: var(--red); }
-.btn.blink { animation: blink .5s steps(1) infinite; }
+.btn.blink { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes blink { 50% { background: var(--raised); box-shadow: none; color: var(--dim); } }
 
 /* ------------------------------------------------------------ knobs */
@@ -239,6 +256,17 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .k-l { font-size: 9px; color: var(--dim); letter-spacing: 0.14em; margin-top: 1px; }
 .knob.active .k-cap, .knob:focus-visible .k-cap { stroke: var(--kc, var(--accent)); }
 .knob.disabled { opacity: .35; cursor: not-allowed; }
+.knob.display { width: 84px; position: relative; }
+.knob.display svg { width: 76px; height: 76px; }
+.knob.display .k-cap { fill: #07120d; stroke: #10261b; }
+.knob.display .k-ind { display: none; }
+.knob.display .k-v {
+  position: absolute; left: 0; right: 0; top: 38px; transform: translateY(-50%); margin: 0;
+  font: 700 17px var(--mono); color: var(--green); text-shadow: 0 0 8px #3dffa880; letter-spacing: 0;
+}
+.knob.display .k-l { margin-top: 4px; }
+.knob.display.disabled { opacity: 1; cursor: not-allowed; }
+.knob.display.disabled .k-v { color: #2a7a55; text-shadow: none; }
 
 /* ------------------------------------------------------------ meter */
 .meter { display: grid; gap: 3px; margin-left: auto; }
@@ -268,9 +296,10 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .keys b { color: var(--dim); font-weight: 600; }
 
 /* ------------------------------------------------------------ responsive */
-@media (max-width: 1240px) {
-  .rig { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-width: 760px; margin: 0 auto; width: 100%; }
-  .device { grid-column: 1 / -1; grid-row: 1; justify-self: center; width: 100%; max-width: 640px; }
+@media (max-width: 1040px) {
+  .rig { grid-template-columns: minmax(0, 1fr); max-width: 680px; margin: 0 auto; width: 100%; }
+  .col-right { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .kgroup + .kgroup { border-left: 0; padding-left: 0; }
 }
 @media (max-width: 720px) {
   .rig { grid-template-columns: minmax(0, 1fr); }
@@ -286,8 +315,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   .pad .key { display: none; }
   .meter { margin-left: auto; }
   .lcd { order: 3; flex-basis: 100%; max-width: none; font-size: 11px; gap: 4px 14px; }
-  .col-right { order: 1; }
-  .col-left { order: 2; }
+  .knobbar { gap: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .pd, .pd::after, .rb { transition: none; }

@@ -12,11 +12,12 @@ function arc(a0, a1, r = 15) {
 }
 
 export class Knob {
-  constructor(host, { label, min = 0, max = 1, value = 0, def = value, step = 0, bipolar = false, format, onChange }) {
+  // display: a larger knob that shows its value inside the dial, LCD-style.
+  constructor(host, { label, min = 0, max = 1, value = 0, def = value, step = 0, bipolar = false, display = false, format, onChange }) {
     Object.assign(this, { min, max, def, step, bipolar, onChange });
     this.format = format || ((v) => v.toFixed(2));
     this.el = document.createElement('div');
-    this.el.className = 'knob';
+    this.el.className = display ? 'knob display' : 'knob';
     this.el.innerHTML = `
       <svg viewBox="0 0 40 40" aria-hidden="true">
         <path class="k-trk" d="${arc(START, START + SWEEP)}"/>

@@ -20,7 +20,9 @@ The UI is laid out like a Launchpad Pro: an 8×8 pad grid framed by function pad
 - **Edge pads**: the top row holds symbol pads for play/stop, record (pad hits into the pattern, quantized), song, copy, clear, chain page ‹ › and tap tempo. The left strip selects a track (labeled, in its color) and the right strip mutes it (speaker icon; amber when muted).
 - **COPY / CLR** work like Launchpad's Duplicate and Delete: arm the button, then tap the target. COPY + pattern copies the pattern you're viewing into it. CLR + pattern, chain entry or track button clears that pattern, removes that chain entry, or clears that track's steps.
 - **Patterns & song**: while playing, picking a pattern queues it for the next bar line. SONG mode plays the chain (up to 64 one-bar entries) and loops. Tap a chain entry to jump there on the next bar, or tap **+** to add the pattern you're editing.
-- **Track editor** (right panel): LEVEL / PITCH (±24 st) / PAN / DECAY, choke group (hats are pre-choked), load an audio file, or record from the mic onto the track (auto-trimmed and normalized).
+- **Knob bar** (top): TEMPO (the BPM knob doubles as the tempo display), SWING, MASTER; the selected track's LEVEL / PITCH (±24 st) / PAN / DECAY; the looper's LEVEL and MIC TRIM.
+- **Track panel** (right): waveform, choke group (hats are pre-choked), load an audio file, or record from the mic onto the track (auto-trimmed and normalized).
+- **Lighting**: lit pads glow from the centre; hits bloom softly and fade; waiting states (queued pattern, armed COPY/CLR) pulse slowly instead of blinking.
 - **Looper** (row 6), pedal-style: pad 1 records, then plays, then overdubs (one button), with a progress sweep; pad 2 stops; pad 3 opens the 8 save slots across the row (tap one to switch loops, in time); then undo, clear (tap twice), bars (1/2/4/8), source (mic or the drum bus) and mic monitoring. Recording starts the instant you press, even mid-bar, and stays locked to the beat. Mic recordings are shifted earlier by the measured audio round-trip latency; the MIC TRIM knob fine-tunes it.
 - Patterns, chain, tempo and track settings persist in `localStorage`.
 
