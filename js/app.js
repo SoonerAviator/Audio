@@ -59,12 +59,16 @@ const ICONS = {
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   drum: '<ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v7c0 1.7 3.6 3 8 3s8-1.3 8-3V8"/>',
   phones: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="7" rx="1.5"/><rect x="17" y="14" width="4" height="7" rx="1.5"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v4h4"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  help: '<path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><circle class="f" cx="12" cy="17.5" r="1.2"/>',
   speaker: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
   muted: '<path class="f" d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
 };
 const icon = (name) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
-const dev = { top: [], left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [] };
+const dev = { top: [], help: null, left: [], right: [], steps: [], vel: [], chain: [], pats: [], loop: [], loopProg: null, pads: [], tools: [] };
 const ui = { meter: [[], []], loopLeds: [] };
 const knobs = {};
 
@@ -194,7 +198,7 @@ function buildDevice() {
   const g = document.createElement('div');
   g.className = 'lp';
   $('device').appendChild(g);
-  // Logical layout: row 0 is the function row, rows 1–10 the 8-wide core; columns 0 and 9
+  // Logical layout: row 0 is the function row, rows 1–11 the 8-wide core; columns 0 and 9
   // are the track/mute strips. The CSS grid has thin spacer tracks around the core,
   // so logical indices map to physical grid lines.
   const physR = (r) => (r === 0 ? 1 : r + 2);
@@ -213,9 +217,13 @@ function buildDevice() {
     dev.top[c].title = t.title;
     tap(dev.top[c], t.fn);
   });
+  dev.help = at('button', 'pd fn', 0, 9);
+  dev.help.title = 'How the grid works';
+  dev.help.innerHTML = icon('help');
+  dev.help.addEventListener('click', () => $('help').showModal());
 
   // Track select / mute strips run the full height of the core.
-  const leftStrip = at('div', 'strip', 1, 0, 10), rightStrip = at('div', 'strip', 1, 9, 10);
+  const leftStrip = at('div', 'strip', 1, 0, 11), rightStrip = at('div', 'strip', 1, 9, 11);
   for (let r = 0; r < 8; r++) {
     dev.left[r] = leftStrip.appendChild(document.createElement('button'));
     dev.left[r].className = 'pd trk';
@@ -284,6 +292,14 @@ function buildDevice() {
     tap(e, (ev) => hitPad(i, ev.shiftKey ? 127 : 110));
     dev.pads.push(e);
   });
+
+  // Row 11: sample tools for the selected track, each 2 cells wide under a drum pad column.
+  at('div', 'sizer', 11, 1);
+  for (let k = 0; k < 4; k++) {
+    const e = at('button', 'pd fn wide', 11, 1 + k * 2, 1, 2);
+    tap(e, () => pressTool(k));
+    dev.tools.push(e);
+  }
 }
 
 function renderDevice() {
@@ -295,9 +311,27 @@ function renderDevice() {
   renderChain();
   renderLoopRow();
   renderPads();
+  renderTools();
+}
+
+function renderTools() {
+  const t = TRACKS[sel], p = state.pads[sel], rec = sampling >= 0;
+  const spec = [
+    ['folder', 'LOAD', 'dim', `Load an audio file onto ${t.name}`],
+    [rec ? 'stop' : 'mic', rec ? 'STOP' : 'SAMPLE', rec ? 'blink' : 'dim', rec ? 'Stop recording' : `Record from the mic onto ${t.name}`],
+    ['reset', 'RESET', 'dim', `Restore the built-in ${t.name} sound`],
+    ['link', 'CHOKE', p.choke ? 'on' : 'dim', 'Choke: tracks with choke on cut each other off (like open and closed hi-hats)'],
+  ];
+  spec.forEach(([ico, name, mode, title], k) => {
+    const e = dev.tools[k];
+    content(e, ico + name, `${icon(ico)}<span class="lb">${name}</span>`);
+    light(e, k === 1 && rec ? RED : t.color, mode);
+    e.title = title;
+  });
 }
 
 function renderTop() {
+  light(dev.help, WHITE, 'dim');
   const maxPage = maxChainPage();
   const spec = {
     play: [playing ? 'stop' : 'play', GREEN, playing ? 'on' : 'dim'],
@@ -642,14 +676,6 @@ function buildEditor() {
     onChange: upd('decay'),
   });
 
-  $('choke').addEventListener('click', () => {
-    p().choke = p().choke ? 0 : 1;
-    sendPad(sel);
-    renderEditor();
-    save();
-  });
-  $('reset').addEventListener('click', () => setSample(sel, makeSample(sel, engine.sampleRate), 'synth'));
-  $('load').addEventListener('click', () => $('file').click());
   $('file').addEventListener('change', async (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -664,12 +690,24 @@ function buildEditor() {
       $('editSrc').textContent = 'could not decode file';
     }
   });
-  $('sample').addEventListener('click', toggleSampling);
   window.addEventListener('resize', drawWave);
+  $('helpClose').addEventListener('click', () => $('help').close());
+  $('help').addEventListener('click', (e) => { if (e.target === $('help')) $('help').close(); }); // backdrop
+}
+
+function pressTool(k) {
+  if (k === 0) $('file').click();
+  else if (k === 1) toggleSampling();
+  else if (k === 2) setSample(sel, makeSample(sel, engine.sampleRate), 'synth');
+  else {
+    state.pads[sel].choke = state.pads[sel].choke ? 0 : 1;
+    sendPad(sel);
+    renderTools();
+    save();
+  }
 }
 
 async function toggleSampling() {
-  const btn = $('sample');
   if (sampling >= 0) {
     engine.send({ t: 'sampStop' });
     return;
@@ -680,15 +718,12 @@ async function toggleSampling() {
   }
   sampling = sel;
   engine.send({ t: 'sampRec', i: sel });
-  btn.classList.add('lit', 'blink');
-  btn.textContent = 'STOP';
+  renderTools();
 }
 
 function onSampled({ i, data }) {
   sampling = -1;
-  const btn = $('sample');
-  btn.classList.remove('lit', 'blink');
-  btn.textContent = 'SAMPLE';
+  renderTools();
   const trimmed = trimSilence(data);
   if (trimmed.length < engine.sampleRate * 0.01) {
     if (i === sel) $('editSrc').textContent = 'nothing recorded';
@@ -714,20 +749,16 @@ function trimSilence(x) {
 
 function renderEditor() {
   const t = TRACKS[sel], p = state.pads[sel];
-  const ed = $('edit');
-  ed.style.setProperty('--c', t.color);
-  ed.style.setProperty('--kc', t.color);
-  $('trackKnobs').style.setProperty('--kc', t.color);
-  $('trkKnobName').textContent = t.name;
+  const row = $('trackKnobs');
+  row.style.setProperty('--c', t.color);
+  row.style.setProperty('--kc', t.color);
   $('editName').textContent = t.name;
   $('editSrc').textContent = srcNames[sel];
   knobs.gain.set(p.gain, false);
   knobs.pitch.set(p.pitch, false);
   knobs.pan.set(p.pan, false);
   knobs.decay.set(p.decay, false);
-  const ch = $('choke');
-  ch.style.setProperty('--c', t.color);
-  ch.classList.toggle('lit', !!p.choke);
+  if (dev.tools.length) renderTools();
   drawWave();
 }
 
@@ -952,7 +983,7 @@ function tapTempo() {
 
 function bindKeys() {
   window.addEventListener('keydown', (e) => {
-    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT') return;
+    if (e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT' || $('help').open) return;
     const k = e.key.toLowerCase();
     const pad = KEYS.indexOf(k);
     if (pad >= 0) { hitPad(pad, e.shiftKey ? 127 : 110); return; }

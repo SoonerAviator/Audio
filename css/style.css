@@ -66,15 +66,22 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .bar { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; padding: 4px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.32em; font-size: 14px; }
 
-/* knob bar: tempo, selected track and looper knobs in one row */
-.panel.knobbar { display: flex; align-items: flex-end; gap: 14px 28px; flex-wrap: wrap; padding-block: 12px; }
-.kgroup { display: grid; gap: 8px; min-width: 0; }
+/* knob bar: row 1 tempo + looper (green), row 2 the selected track (its colour) */
+.panel.knobbar { gap: 12px; padding-block: 12px; }
+.krow { display: flex; align-items: stretch; gap: 14px 28px; flex-wrap: wrap; min-width: 0; }
+.krow + .krow { border-top: 1px solid var(--line); padding-top: 12px; }
+.kgroup { display: grid; grid-template-rows: auto 1fr; gap: 8px; min-width: 0; }
 .kgroup + .kgroup { border-left: 1px solid var(--line); padding-left: 28px; }
-.kgroup .knob-row { align-items: flex-end; }
+.kgroup .knob-row { align-items: flex-end; align-self: end; }
+.track-row > .knob-row { align-self: end; }
+.track-row { --c: var(--kc); }
+.trk-info { flex: 1 1 260px; max-width: 420px; }
+.trk-info .ph { display: flex; align-items: center; gap: 6px; }
+.trk-info .wave { height: 48px; }
 
 .rig {
   display: grid;
-  grid-template-columns: minmax(0, 640px) 320px;
+  grid-template-columns: minmax(0, 660px);
   justify-content: center;
   gap: 14px;
   align-items: start;
@@ -115,13 +122,17 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .lp {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2px repeat(8, minmax(0, 1fr)) 2px minmax(0, 1fr);
-  grid-template-rows: auto 2px repeat(10, auto);
+  grid-template-rows: auto 2px repeat(11, auto);
   gap: 6px;
   align-items: center;
 }
 .sizer { aspect-ratio: 1; visibility: hidden; }
 .strip { display: grid; grid-template-rows: repeat(8, minmax(0, 1fr)); gap: 6px; align-self: stretch; }
 .strip .pd { aspect-ratio: auto; }
+/* wide (2×1) tool pads: symbol on the left, name on the right */
+.pd.wide { aspect-ratio: auto; align-self: stretch; }
+.pd.wide .ico { left: 28%; width: 34%; height: 46%; }
+.pd.wide .lb { left: 48%; bottom: 50%; transform: translateY(50%); font-size: 10px; }
 
 /* grid cells */
 .pd {
@@ -277,16 +288,24 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 /* ------------------------------------------------------------ track editor */
 .edit-head { display: flex; align-items: center; gap: 8px; }
 .edit-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
-.edit-name { font-weight: 700; font-size: 13px; color: var(--c); }
-.edit-src { margin-left: auto; color: var(--dim); font-size: 10px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-name { color: var(--c); }
+.edit-src { margin-left: auto; color: var(--faint); font-weight: 600; letter-spacing: 0.06em; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wave { width: 100%; height: 76px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; display: block; }
-.edit-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.edit-btns .btn { padding: 0; }
 
-.guide dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 11px; letter-spacing: 0.02em; line-height: 1.45; }
-.guide dt { color: var(--dim); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; white-space: nowrap; padding-top: 1px; }
-.guide dd { margin: 0; color: var(--text); }
-.guide b { color: var(--amber); }
+/* help popup */
+.help {
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 20px; box-shadow: 0 30px 80px -20px #000;
+}
+.help::backdrop { background: #000a; }
+.help-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.help-head h2 { margin: 0; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; }
+.help .keys { margin-top: 16px; justify-content: flex-start; padding: 0; gap: 8px 16px; }
+.help dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 11px; letter-spacing: 0.02em; line-height: 1.45; }
+.help dt { color: var(--dim); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; white-space: nowrap; padding-top: 1px; }
+.help dd { margin: 0; color: var(--text); }
+.help b { color: var(--amber); }
 
 /* ------------------------------------------------------------ looper panel */
 .loop-state { font-weight: 700; color: var(--text); font-size: 11px; line-height: 1.4; }
@@ -298,7 +317,6 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 /* ------------------------------------------------------------ responsive */
 @media (max-width: 1040px) {
   .rig { grid-template-columns: minmax(0, 1fr); max-width: 680px; margin: 0 auto; width: 100%; }
-  .col-right { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
   .kgroup + .kgroup { border-left: 0; padding-left: 0; }
 }
 @media (max-width: 720px) {
@@ -308,7 +326,9 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   .pd { border-radius: 4px; }
   .pd .lb { font-size: 7px; left: 3px; bottom: 2px; letter-spacing: 0; }
   .pd.trk .lb { font-size: 6px; left: 50%; bottom: 50%; }
-  .lp { grid-template-columns: minmax(0, 1fr) 1px repeat(8, minmax(0, 1fr)) 1px minmax(0, 1fr); grid-template-rows: auto 1px repeat(10, auto); }
+  .lp { grid-template-columns: minmax(0, 1fr) 1px repeat(8, minmax(0, 1fr)) 1px minmax(0, 1fr); grid-template-rows: auto 1px repeat(11, auto); }
+  .pd.wide .ico { display: none; }
+  .pd.wide .lb { font-size: 9px; left: 50%; transform: translate(-50%, 50%); }
   .strip { gap: 4px; }
   .pd .num { font-size: 11px; }
   .pad .lb { font-size: 9px; left: 7px; bottom: 5px; }

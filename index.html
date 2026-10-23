@@ -28,58 +28,50 @@
     </header>
 
     <section class="panel knobbar">
-      <div class="kgroup">
-        <h2 class="ph">TEMPO</h2>
-        <div class="knob-row" id="globalKnobs"></div>
+      <div class="krow">
+        <div class="kgroup">
+          <h2 class="ph">TEMPO</h2>
+          <div class="knob-row" id="globalKnobs"></div>
+        </div>
+        <div class="kgroup">
+          <h2 class="ph">LOOPER</h2>
+          <div class="knob-row" id="loopKnobs"></div>
+        </div>
       </div>
-      <div class="kgroup" id="trackKnobs">
-        <h2 class="ph">TRACK · <span id="trkKnobName">KICK</span></h2>
+      <div class="krow track-row" id="trackKnobs">
+        <div class="kgroup trk-info">
+          <h2 class="ph"><span class="edit-dot"></span>TRACK · <span class="edit-name" id="editName">KICK</span><span class="edit-src" id="editSrc">synth</span></h2>
+          <canvas class="wave" id="wave"></canvas>
+        </div>
         <div class="knob-row" id="padKnobs"></div>
       </div>
-      <div class="kgroup">
-        <h2 class="ph">LOOPER</h2>
-        <div class="knob-row" id="loopKnobs"></div>
-      </div>
+      <input type="file" id="file" accept="audio/*" hidden>
     </section>
 
     <main class="rig">
       <section class="device" id="device" aria-label="Pad grid"></section>
 
-      <aside class="col col-right">
-        <section class="panel edit-panel" id="edit">
-          <div class="edit-head">
-            <span class="edit-dot"></span>
-            <span class="edit-name" id="editName">KICK</span>
-            <span class="edit-src" id="editSrc">synth</span>
-          </div>
-          <canvas class="wave" id="wave"></canvas>
-          <div class="edit-btns">
-            <button class="btn" id="load" title="Load an audio file onto this track">LOAD</button>
-            <button class="btn btn-sample" id="sample" title="Record from the audio input onto this track">SAMPLE</button>
-            <button class="btn" id="reset" title="Restore the built-in sound">RESET</button>
-            <button class="btn" id="choke" title="Choke group: tracks in the group cut each other off">CHOKE</button>
-          </div>
-          <input type="file" id="file" accept="audio/*" hidden>
-        </section>
-
-        <section class="panel guide">
-          <h2 class="ph">GRID</h2>
-          <dl>
-            <dt>Rows 1–2</dt><dd>16 steps of the selected track. Shift-click for an accent.</dd>
-            <dt>Row 3</dt><dd>Velocity for new steps.</dd>
-            <dt>Row 4</dt><dd>Song chain. Tap <b>+</b> to add the pattern you're editing, tap an entry to jump to it.</dd>
-            <dt>Row 5</dt><dd>Patterns A–H.</dd>
-            <dt>Row 6</dt><dd>Looper: record / play / overdub, stop, save slot (opens the slot picker), undo, clear (tap twice), bars, source, monitor. Recording starts the moment you press.</dd>
-            <dt>Pads</dt><dd>Play and select tracks.</dd>
-            <dt>COPY</dt><dd>Arm, then tap a pattern to copy this one into it.</dd>
-            <dt>CLR</dt><dd>Arm, then tap a pattern, a chain entry or a track pad to clear it.</dd>
-            <dt>TAP</dt><dd>Tap in time to set the tempo.</dd>
-          </dl>
-        </section>
-      </aside>
     </main>
 
-    <footer class="keys">
+    <dialog class="help" id="help" aria-labelledby="helpTitle">
+      <div class="help-head">
+        <h2 id="helpTitle">How the grid works</h2>
+        <button class="btn" id="helpClose">CLOSE</button>
+      </div>
+      <dl>
+          <dt>Rows 1–2</dt><dd>16 steps of the selected track. Shift-click for an accent.</dd>
+          <dt>Row 3</dt><dd>Velocity for new steps.</dd>
+          <dt>Row 4</dt><dd>Song chain. Tap <b>+</b> to add the pattern you're editing, tap an entry to jump to it.</dd>
+          <dt>Row 5</dt><dd>Patterns A–H.</dd>
+          <dt>Row 6</dt><dd>Looper: record / play / overdub, stop, save slot (opens the slot picker), undo, clear (tap twice), bars, source, monitor. Recording starts the moment you press.</dd>
+          <dt>Pads</dt><dd>Play and select tracks.</dd>
+          <dt>Row 11</dt><dd>Sample tools for the selected track: load an audio file, record from the mic (tap again to stop), restore the built-in sound, and choke (tracks with choke on cut each other off, like open and closed hi-hats).</dd>
+          <dt>COPY</dt><dd>Arm, then tap a pattern to copy this one into it.</dd>
+          <dt>CLR</dt><dd>Arm, then tap a pattern, a chain entry or a track pad to clear it.</dd>
+          <dt>TAP</dt><dd>Tap in time to set the tempo.</dd>
+          <dt>‹ ›</dt><dd>Page through the song chain, 8 bars at a time.</dd>
+      </dl>
+      <div class="keys">
       <span><b>Q W E R / A S D F</b> pads</span>
       <span><b>↑ ↓</b> track</span>
       <span><b>Space</b> play</span>
@@ -90,7 +82,9 @@
       <span><b>L</b> loop rec/play/dub</span>
       <span><b>K</b> loop stop</span>
       <span><b>U</b> loop undo</span>
-    </footer>
+    </div>
+    </dialog>
+
   </div>
 
   <script type="module" src="js/app.js"></script>
